@@ -1,0 +1,54 @@
+---
+title: "GO_figures_BC1_PI.LV"
+author: "FLC"
+date: '2022-06-03'
+output: html_document
+---
+```{r library_loading}
+library(readxl)
+library(ggplot2)
+library(stringr)
+library(forcats)
+```
+
+```{r}
+# Loading of the ClueGO output excel of BC1_PI.LV
+GO_BC1_PI.LV <- read_excel("/home/fllobet/Documents/RNA-Seq_TFM/GO/GO_BC1_PI.LV.xls")
+
+# Remove of the [] from the 'Associated genes found' 
+for (x in 1:dim(GO_BC1_PI.LV)[1]) {
+  GO_BC1_PI.LV[x,length(GO_BC1_PI.LV)] <- str_remove_all(str_remove(str_remove(GO_BC1_PI.LV[x,length(GO_BC1_PI.LV)],"\\["),"\\]"),"\\,")  
+}
+
+
+# Re-ordering of the rows by corrected P-Value
+GO_BC1_PI.LV <- GO_BC1_PI.LV[order(GO_BC1_PI.LV$`Term PValue Corrected with Benjamini-Hochberg`),]
+```
+
+```{r}
+# Definition of the -log10 P-Value thershold
+log_TH <- 14
+xlb <- expression(paste("-",log[10],"(","adjusted p-values",")"))
+GO_BC1_PI.LV_plt <- ggplot(data = GO_BC1_PI.LV[which(-log(GO_BC1_PI.LV$`Term PValue Corrected with Benjamini-Hochberg`) > log_TH),], 
+       mapping = aes(x = -log(`Term PValue Corrected with Benjamini-Hochberg`), 
+                     y = fct_reorder(Term, `Term PValue Corrected with Benjamini-Hochberg`, .desc = TRUE), fill = GOGroups, width = 0.5)) + 
+  geom_col(position = "dodge") +
+  geom_text(label = str_wrap(GO_BC1_PI.LV[which(-log(GO_BC1_PI.LV$`Term PValue Corrected with Benjamini-Hochberg`) > log_TH),]$`Associated Genes Found`, 100), 
+            hjust = -0.01, 
+            family = "Ubuntu", fontface = "bold.italic", 
+            colour = c("#000000"),
+            size = 1.8) +
+  scale_fill_manual(values = c("#2F6284",
+                               "#789F62",
+                               "#8BE2C9",
+                               "#2f847c", 
+                               "#DBD76B",
+                               "#ACE1AF")) + 
+  scale_y_discrete(labels = str_wrap(GO_BC1_PI.LV$Term,40),
+                   breaks = GO_BC1_PI.LV$Term[order(GO_BC1_PI.LV$`Term PValue Corrected with Benjamini-Hochberg`)]) + scale_x_continuous(expand = expansion(0,0), limits = c(0,61), breaks = seq(0,29,2)) + labs(x = xlb, y = "") + 
+  theme_bw() + theme(legend.position = "none", text = element_text(family = "Ubuntu", face = "bold", colour = "black"), axis.text = element_text(face = "bold", colour = "black", size = 7), axis.title.x = element_text(face = "bold", family = "Ubuntu", hjust = 0.15))
+
+
+ggsave("/home/fllobet/Documents/RNA-Seq_TFM/GO/Plots/BC1_PI.LV.jpeg", GO_BC1_PI.LV_plt, dpi = "retina", height = 7, width = 10)
+```
+

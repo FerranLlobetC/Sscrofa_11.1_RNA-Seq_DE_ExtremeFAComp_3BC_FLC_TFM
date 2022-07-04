@@ -1,0 +1,51 @@
+### 1º Download of the miniconda installer
+wget https://repo.anaconda.com/miniconda/Miniconda3-py39_4.11.0-Linux-x86_64.sh
+
+### 2º Installation of Miniconda
+bash Miniconda3-py39_4.11.0-Linux-x86_64.sh
+
+### 3º Change of location as I followed the suggestion of
+# https://stackoverflow.com/questions/27263620/how-to-install-anaconda-python-for-all-users
+Miniconda3 will now be installed into this location:
+/home/fllobet/miniconda3
+
+  - Press ENTER to confirm the location
+  - Press CTRL-C to abort the installation
+  - Or specify a different location below
+
+[/home/fllobet/miniconda3] >>> /opt/miniconda3
+
+### 4º Modification of .bashrc
+# >>> conda initialize >>>
+# !! Contents within this block are managed by 'conda init' !!
+__conda_setup="$('/opt/miniconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
+if [ $? -eq 0 ]; then
+    eval "$__conda_setup"
+else
+    if [ -f "/opt/miniconda3/etc/profile.d/conda.sh" ]; then
+        . "/opt/miniconda3/etc/profile.d/conda.sh"
+    else
+        export PATH="/opt/miniconda3/bin:$PATH"
+    fi
+fi
+unset __conda_setup
+# <<< conda initialize <<<
+
+### 5º Allowing conda to modify its own directory
+sudo chmod a+w -R /opt/miniconda3/
+
+### 6ª Installation of mamba because parallelism is the way to go
+conda install -c conda-forge mamba
+
+### 7º Creation of the RNA-Seq environment
+mamba env create --file RNA-Seq.yaml
+
+### 8º Creation of the snakemake environment
+mamba create -c conda-forge -c bioconda -n snakemake snakemake
+
+conda env list
+# conda environments:
+#
+base                  *  /opt/miniconda3
+RNA-Seq                  /opt/miniconda3/envs/RNA-Seq
+snakemake                /opt/miniconda3/envs/snakemake

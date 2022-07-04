@@ -1,0 +1,41 @@
+---
+title: "BC1_LD_PV_publications"
+author: "FLC"
+date: '2022-06-26'
+output: html_document
+---
+
+```{r libraries}
+library(ggplot2)
+library(patchwork)
+```
+
+```{r data_loading}
+
+# List of files
+fls <- list.files(path = "~/Documents/RNA-Seq_TFM/Extra_figures/BC1_LV_vs_publ/", 
+                  pattern = "*.rds", full.names = TRUE)
+
+############################# LOADING OF ALL THE DF ############################ 
+dfs <- c()
+for (x in fls) {
+  # A different object name per each DF
+  assign(str_remove(str_remove(x, pattern = "[,-z]+/"),".rds"), 
+         # The RDS object to load
+         readRDS(x))
+  # Vector containing all the DF names
+  dfs <- c(dfs, str_remove(str_remove(x, pattern = "[,-z]+/"),".rds"))
+} 
+
+
+layout <- "
+AABB
+#CC#
+"
+plts <- BC1_LD.LV_vs_Yuli + BC1_LD.BF_vs_Corominas + BC1_LD.LD_vs_Puig + plot_layout(design = layout)
+
+
+ggsave(plot = plts, "~/Documents/RNA-Seq_TFM/Extra_figures/BC1_LD_pv_vs_Publ.jpeg",
+      dpi = "retina", width = 9.69, height = 5.61)
+```   
+

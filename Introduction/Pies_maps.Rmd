@@ -1,0 +1,343 @@
+---
+title: "Maps_Lesson"
+author: "Ferran Llobet Cabau"
+date: "22/3/2021"
+output: html_document
+---
+```{r}
+#Library Loading
+library("rnaturalearth")
+library("rnaturalearthdata")
+#library("rnaturalearthhires") #To be able to use the large scale
+library("sf")
+library("cowplot")
+#library("googleway")
+library("ggplot2")
+library("ggrepel")
+library("ggspatial")
+#library("libwgeom")  #DOES NOT WORK
+library("rgeos")
+# The package "ragg" allows the use of new and complex UTF-8 encoding @EMOJIS
+library(ragg) # https://www.tidyverse.org/blog/2021/02/modern-text-features/
+library(readr)
+library(dplyr)
+library(patchwork) # To arrange ggplot objects
+library(rayshader)
+library(forcats)
+#############################
+### Càrrega de llibreries ###
+#############################
+library(rgdal)
+library(RJSONIO)
+library(mapSpain)
+```
+
+```{r}
+#"rnaturalearth" contains pre-downloaded maps for conutries, states and coastlines.
+#It can be used to create a solid base layer
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+class(world)
+
+```
+# Pie-chart of global pork meat production
+```{r pie_pork_world}
+# https://r-charts.com/part-whole/pie-chart-labels-outside-ggplot2/
+pork_world_data <- read_delim("~/Documents/RNA-Seq_TFM/Introduction/Pork_production_World2.csv", 
+                            delim = " ", progress = TRUE, 
+                            locale = locale(encoding = "UTF-8"))
+
+######################## Addition of the label coordinates #####################
+### Compute the position of the labels
+pork_world_data2 <- pork_world_data %>%
+  # Ordering by descending country name
+  mutate(csum = rev(cumsum(rev(Percentatge_2019))),
+          pos = Percentatge_2019/2 + lead(csum, 1),
+          pos = if_else(is.na(pos), Percentatge_2019/2, pos)) 
+  
+
+
+
+pie_prok_world <- ggplot(data = pork_world_data,
+       aes(x = "", y = Percentatge_2019, fill = fct_inorder(Country))) + 
+  # Generation of a bar plot from 0 to 100 (1 column of colors)
+  geom_col(color = "#FFFFFF", width = 1) +
+  # To convert the bar plot into a circle:
+  coord_polar(theta = "y") +
+  # To add the country name
+  scale_y_continuous(breaks = pork_world_data2$pos, labels = paste0(pork_world_data2$FLAG,"\n",
+                                                                    pork_world_data2$Percentatge_2019,"%")) + 
+  scale_fill_manual(values = c("#556b2f",  # China 
+                               "#2f847c",  # EU
+                               "#789F62",  # USA
+                               "#bdb76b",  # Brazil 
+                               "#ace1af",  # Russia
+                               "#8be2c9",  # Vietnam
+                               "#2f6284",  # Canada
+                               "#4d5d53")) +  # Others 
+  labs(title = "A") +
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "none",
+        text = element_text(family = "Ubuntu", 
+                            size = ifelse(pork_world_data2$Country == "EU", 
+                                          20, 16), face = "bold"),
+        axis.text = element_text(colour = ifelse(pork_world_data2$Country == "EU", 
+                                          "#2f847c", "#707070")),
+                                 panel.background = element_blank())
+
+ggsave(pie_prok_world, filename = "~/Documents/RNA-Seq_TFM/Introduction/pie_world.jpeg", dpi = "retina",
+       height = 5.61, width = 10.8, bg = "#FFFFFF")
+```
+
+# Pie-chart of european pork meat production
+```{r pie_pork_world}
+
+pork_world_EU <- read_delim("~/Documents/RNA-Seq_TFM/Introduction/Pork_production_EU.csv", 
+                            delim = " ", progress = TRUE, 
+                            locale = locale(encoding = "UTF-8"))
+
+######################## Addition of the label coordinates #####################
+### Compute the position of the labels
+pork_world_EU2 <- pork_world_EU %>%
+  # Ordering by descending country name
+  mutate(csum = rev(cumsum(rev(Percentatge_2021))),
+          pos = Percentatge_2021/2 + lead(csum, 1),
+          pos = if_else(is.na(pos), Percentatge_2021/2, pos)) 
+  
+
+
+
+pie_prok_EU <- ggplot(data = pork_world_EU,
+       aes(x = "", y = Percentatge_2021, fill = fct_inorder(Country))) + 
+  # Generation of a bar plot from 0 to 100 (1 column of colors)
+  geom_col(color = "#FFFFFF", width = 1) +
+  # To convert the bar plot into a circle:
+  coord_polar(theta = "y") +
+  scale_fill_manual(values = c("#556b2f",  # Germany 
+                               "#2f847c",  # Spain
+                               "#789F62",  # France
+                               "#bdb76b",  # Poland 
+                               "#ace1af",  # Denmark
+                               "#8be2c9",  # Netherlands
+                               "#2f6284",  # Italy
+                               "#4d5d53")) +  # Others) + 
+  # To add the country name
+  scale_y_continuous(breaks = pork_world_EU2$pos, labels = paste0(pork_world_EU2$FLAG,"\n",
+                                                                    pork_world_EU2$Percentatge_2021,"%")) + 
+  labs(title = "B") +
+  
+  #scale_fill_manual(values = c()) +
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "none",
+        text = element_text(family = "Ubuntu", size = ifelse(pork_world_EU2$Country == "Spain", 20, 16), face = "bold"), axis.text = element_text(colour = ifelse(pork_world_EU2$Country == "Spain", 
+                                          "#2f847c", "#707070")),
+        panel.background = element_blank())
+
+ggsave(pie_prok_EU, filename = "~/Documents/RNA-Seq_TFM/Introduction/pie_EU.jpeg", dpi = "retina",
+       height = 5.61, width = 10.8, bg = "#FFFFFF")
+
+
+
+```
+# Map of spain illustrating production per autonomous comunity
+```{r pork_production_data_ES}
+pork_ES <- read.csv("~/Documents/RNA-Seq_TFM/Introduction/Spain_Production.csv", sep = " ")
+pork_ES2 <- cbind(pork_ES, round(pork_ES$X2020/sum(pork_ES$X2020)*100,2))
+sum(pork_ES$X2020)
+colnames(pork_ES2) <- c(colnames(pork_ES),"Percentatge_2020")
+data_plot_ES <- merge(x = ccaa, y = pork_ES2, by.x = "iso2.ccaa.code", by.y = "CC_AA", all.x = TRUE)
+```
+
+https://rpubs.com/albtorval/595824
+To get the shapefile:
+https://www.arcgis.com/home/item.html?id=5f689357238847bc823a2fb164544a77
+```{r map_spain}
+esp <- esp_get_country()
+ccaa <- esp_get_ccaa()
+
+#ggplot(data = data_plot_ES) + geom_sf() + geom_sf(data = data_plot_ES, aes(fill = X2020)) + geom_sf_text(label = paste0(data_plot_ES$Percentatge_2020,"%"), family = "ubuntu", fontface = "bold", size = 3, color = ifelse(data_plot_ES$Percentatge_2020 > 20, "#FFFFFF", "#000000")) + scale_fill_gradient(low = "#bdb76b", high = "#556b2f", na.value = "#4d5d53") + theme_void()
+
+spain_pork <- ggplot(data = data_plot_ES) + geom_sf() + 
+  geom_sf(data = data_plot_ES, aes(fill = X2020)) + 
+  geom_sf_text(label = paste0(data_plot_ES$Percentatge_2020,"%"),
+               family = "ubuntu", fontface = "bold", size = 3, 
+               color = ifelse(data_plot_ES$Percentatge_2020 > 20, 
+                              "#FFFFFF", "#000000")) + 
+  scale_fill_gradient(low = "#ace1af", high = "#2f847c", na.value = "#4d5d53", name = "Pig census") +
+  labs(title = "C") + theme_void() + theme(text = element_text(family = "Ubuntu",
+                                                               face = "bold"),
+                                           legend.justification = c(1, 0),
+                                           legend.position = c(0.9, 0.1),
+                                           plot.title = element_text(hjust = 0.05, face = "bold", size = 18,
+                                                                     family = "Ubuntu"))
+
+ggsave(spain_pork, filename = "~/Documents/RNA-Seq_TFM/Introduction/Maps/Pork_production_spain.jpeg",
+       dpi = "retina", height = 5.61, width = 10.8, bg = "#FFFFFF")
+```
+
+
+# CODES OF PERE MILLAN TO GET A CATALONIA MAP <3
+https://sciencegraph.medium.com/edici%C3%B3-de-mapes-estad%C3%ADstics-de-catalunya-amb-r-e785746a32e8
+https://github.com/sciencegraph/MAPES
+```{r CATMAP_data_loading}
+################################
+### Càrrega de capes de base ###
+################################
+# Directori amb el recull de capes actualitzat a 19-02-2021
+dsn_basemun <- "~/Documents/RNA-Seq_TFM/Introduction/Maps/MAPES/ICGC/BASE_MUNICIPAL/bm5mv21sh0tc1_20200601_0/"
+# Perímetre de provincies
+shapefile1 <- readOGR(dsn = dsn_basemun, layer="bm5mv21sh0tpp1_20200601_0")
+shp_prv_pol <- fortify(shapefile1, region = "CODIPROV")
+# Perímetre de comarques
+shapefile2 <- readOGR(dsn = dsn_basemun, layer="bm5mv21sh0tpc1_20200601_0")
+shp_com_pol <- fortify(shapefile2, region = "CODICOMAR")
+# Perímetre de municipis
+shapefile3 <- readOGR(dsn = dsn_basemun, layer="bm5mv21sh0tpm1_20200601_0")
+shp_mun_pol <- fortify(shapefile3, region = "CODIMUNI")
+# Punts de municipis
+shapefile4 <- readOGR(dsn = dsn_basemun, layer="bm5mv21sh0tcm1_20200601_0")
+shp_mun_pnt <- as.data.frame(shapefile4)
+```
+
+```{r MUNIC_data_loading}
+###########################################
+### Càrrega de dades a nivell municipal ###
+###########################################
+# Altitud
+## Get the equivalences of code - name of municipi
+query1 <- "http://api.idescat.cat/emex/v1/geo.json?i=f271&tipus=cat,mun&lang=en"
+parsed.query1   <- RJSONIO::fromJSON(content = query1, encoding = 'UTF-8')
+```
+
+```{r dataset}
+############################
+### Formació del dataset ###
+############################
+# Estructurem com a data.frame
+id              <- sapply(parsed.query1$fitxes$cols$col, function(x) x[[2]])
+name            <- sapply(parsed.query1$fitxes$cols$col, function(x) x[[3]])
+observation     <- as.numeric(unlist(strsplit(parsed.query1$fitxes$indicadors$i$v[[1]][], 
+                                              split=",")))
+df_observation  <- data.frame(id, name, observation)
+```
+
+
+
+
+# Creation of a dataset of the number of exploitations in catalonia
+
+```{r pig_cat_loading}
+# PIG DATA SET FROM:
+# http://agricultura.gencat.cat/ca/departament/estadistiques/ramaderia/nombre-explotacions-capacitat/
+df_pigCAT <- read.csv("~/Documents/RNA-Seq_TFM/Introduction/PIG_Catalonia_2020.csv", sep = ",")
+```
+
+```{r}
+df_POB <- read_delim("~/Documents/RNA-Seq_TFM/Introduction/poblacio_Cat_2020.csv", delim = ";", skip = 5)
+
+# Computation of total population per "municipi"
+df_POB2 <- cbind(df_POB,rowSums(df_POB[,c(8,9,10)]))
+colnames(df_POB2) <- c(colnames(df_POB),"POBLACIO")
+
+df_PIG_POB <- merge(df_POB2, df_pigCAT, by.x = "Literal", by.y = "MUNICIPI", all.x = TRUE)
+
+df_PIG_POB2 <- cbind(df_PIG_POB, df_PIG_POB$CAPACITAT.TOTAL/df_PIG_POB$POBLACIO)
+colnames(df_PIG_POB2) <- c(colnames(df_PIG_POB),"Pig_per_capita")
+
+ppc <-ggplot(data = df_PIG_POB2[which(df_PIG_POB2$Pig_per_capita > 100),], 
+       aes(x = Pig_per_capita, 
+           y = forcats::fct_reorder(Literal, Pig_per_capita, .desc = FALSE), 
+           fill = Literal)) +
+  geom_col() +
+  scale_y_discrete(labels = str_wrap(df_PIG_POB2$Literal[order(df_PIG_POB2[,ncol(df_PIG_POB2)], decreasing = TRUE)],50)) + 
+  geom_text(label = trunc(df_PIG_POB2[which(df_PIG_POB2$Pig_per_capita > 100),]$Pig_per_capita),
+            hjust = 1.01, size = 3) + 
+  scale_x_continuous(expand = c(0,0), breaks = seq(0,7000,50)) +
+  theme(text = element_text(family = "ubuntu"), legend.position = "none")
+
+ggsave(ppc, filename = "~/Documents/RNA-Seq_TFM/Introduction/ppc.jpeg", dpi = "retina", width = 8.97,
+       height = 4.61, bg = "#FFFFFF")
+```
+
+```{r merge of data}
+#############################################
+### Unió dels datasets de base i de dades ###
+#############################################
+# Unió dels dos data.frame 
+## shp_mu_pol: Posicions dels municipis
+## df_observations: Les dades del Pere Millan (equivalencia codi - poble)
+## df_pigCAT: Les dades d'explotacions porcines
+
+## 1º Union of df_observations + df_pigCAT
+dfs_munPIG <- merge(df_observation, df_pigCAT, by.x = "name", by.y = "MUNICIPI",
+                    all.x = TRUE)
+
+## 2º Union of the df_munPIG + shp_mu_pol
+merge.shp.coef  <- merge(shp_mun_pol, dfs_munPIG, by="id", all.x=TRUE)
+data_to_plot     <- merge.shp.coef[order(merge.shp.coef$order), ]
+
+```
+
+# CATALONIA MAPs
+```{r cat_intensives}
+CAT_int <- ggplot() +
+  geom_polygon(data=data_to_plot[data_to_plot$NOMBRE.D.EXPLOTACIONS.MAJORS.O.IGUALS.1.UR > 1,], 
+               aes(x = long, y = lat, group = group, fill = NOMBRE.D.EXPLOTACIONS.MAJORS.O.IGUALS.1.UR),
+               color = "transparent", size = 0.1) +
+  # Outline (shape) of the "municipis"
+  geom_path(data = shp_mun_pol,
+            aes(x = long, y = lat, group = group),
+            size = .1, alpha = 0.5) +
+  # Outline (shape) of the "comarques"
+  geom_path(data = shp_com_pol, 
+            aes(x = long, y = lat, group = group),
+            size = .2) +
+  # Fixed coordinates are required to generate a map and not weird boxes
+  coord_fixed() + 
+  scale_fill_gradient(low = "#ace1af", high = "#2f847c", na.value = "#4d5d53", name = "Nº farms", limits = c(0,115)) +
+  labs(title = "A") + 
+  # To print only the map
+  theme_void() +
+  theme(legend.justification = c(1, 0),
+  legend.position = c(0.9, 0.1),
+  text = element_text(family = "ubuntu", face = "bold"), panel.background = element_blank())
+
+ggsave(CAT_int, 
+       filename = "~/Documents/RNA-Seq_TFM/Introduction/Maps/Intensive_CAT.jpeg", 
+       dpi = "retina", height = 4.61, width = 8.66, bg = "#FFFFFF")
+```
+
+
+```{r cat_extensives}
+CAT_ext <- ggplot() +
+  geom_polygon(data=data_to_plot[data_to_plot$NOMBRE.D.EXPLOTACIONS.MENORS.1.UR > 1,], 
+               aes(x = long, y = lat, group = group, 
+                   fill = NOMBRE.D.EXPLOTACIONS.MENORS.1.UR),
+               color = "transparent", size = 0.1) +
+  # Outline (shape) of the "municipis"
+  geom_path(data = shp_mun_pol,
+            aes(x = long, y = lat, group = group),
+            size = .1, alpha = 0.5) +
+  # Outline (shape) of the "comarques"
+  geom_path(data = shp_com_pol, 
+            aes(x = long, y = lat, group = group),
+            size = .2) +
+  # Fixed coordinates are required to generate a map and not weird boxes
+  coord_fixed() +
+  scale_fill_gradient(low = "#bdb76b", high = "#556b2f", na.value = "#4d5d53", name = "Nº farms", limits = c(0,115)) +
+  labs(title = "B") +
+  # To print only the map
+  theme_void() +
+  theme(legend.justification = c(1, 0),
+  legend.position = c(0.9, 0.1),
+  text = element_text(family = "ubuntu", face = "bold"))
+
+ggsave(CAT_ext, 
+       filename = "~/Documents/RNA-Seq_TFM/Introduction/Maps/Extensive_CAT.jpeg", 
+       dpi = "retina", height = 4.61, width = 8.66, bg = "#FFFFFF")
+```
+

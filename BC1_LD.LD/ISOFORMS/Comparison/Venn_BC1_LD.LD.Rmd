@@ -1,0 +1,70 @@
+---
+title: "isoforms_venn_BC1_LD.LD"
+author: "FLC"
+date: '2022-06-08'
+output: html_document
+---
+```{r}
+library(ggplot2)
+library(ggVennDiagram)
+```
+
+
+
+```{r setup, include=FALSE}
+# Loading of the results from DESeq2
+DESeq2_BC1_LD.LD <- read.csv("/home/fllobet/Documents/RNA-Seq_TFM/BC1_LD.LD/ISOFORMS/BC1_LD.iF.LD.SF.Results_a_0.05.csv", sep = ";")
+
+# |FC| > 1.5 filtering
+DESeq2_BC1_LD.LD <- DESeq2_BC1_LD.LD[which(DESeq2_BC1_LD.LD[,3] >= log2(1.5) | DESeq2_BC1_LD.LD[,3] <= -log2(1.5)),]
+
+# FDR < 0.05 filtering 
+DESeq2_BC1_LD.LD <- DESeq2_BC1_LD.LD[which(DESeq2_BC1_LD.LD[,7] < 0.05),]
+
+# Loading of the results from EBSeq
+EBSeq_BC1_LD.LD <- read.csv("/home/fllobet/Documents/RNA-Seq_TFM/BC1_LD.LD/ISOFORMS/EBSeq/BC1_LD.iF.LD_EBrb_SIGNIF.Results.csv", sep = ";")
+
+# |FC| > 1.5 filtering
+EBSeq_BC1_LD.LD <-  EBSeq_BC1_LD.LD[which(EBSeq_BC1_LD.LD[,4] >= log2(1.5) | EBSeq_BC1_LD.LD[,4] <= -log2(1.5)),]
+
+# PP DE > 0.95 filtering 
+EBSeq_BC1_LD.LD <- EBSeq_BC1_LD.LD[which(EBSeq_BC1_LD.LD[,6] > 0.95),]
+```
+
+```{r}
+# INSPIRATION: https://stackoverflow.com/questions/70228591/set-the-color-of-categories-in-venn-diagram-in-r
+
+# Division of the 'feature' column of the DESeq2 data into 2 columns 
+DESeq2_BC1_LD.LD <- cbind(DESeq2_BC1_LD.LD[,1], DESeq2_BC1_LD.LD)
+DESeq2_BC1_LD.LD[,1:2] <- str_split_fixed(DESeq2_BC1_LD.LD[,1],"_", n = 2) 
+
+# Creating a list cotaining the lists of ID's
+sets_of_DEI <- list(DESeq2 = DESeq2_BC1_LD.LD$`DESeq2_BC1_LD.LD[, 1]`, EBSeq = EBSeq_BC1_LD.LD$ENSEMBL.ID)
+
+venn <- Venn(sets_of_DEI)
+data <- process_data(venn)
+
+vn <- ggplot() + 
+  # 1. Circles layer
+  geom_sf(aes(fill = count), data = venn_region(data)) +
+  # 2. Labels of the circles layer
+  geom_sf_text(aes(label = name, color = name), data = venn_setlabel(data), fontface = "bold", size = 6, nundge_y = 0.4) +
+  # 3. Numbers inside of the circles
+  geom_sf_text(aes(label = count), data = venn_region(data), size = 10, fontface = "bold", color = "#FFFFFF") +
+  # User-defined fill colors of the circles
+  scale_fill_steps(low = "#bdb76b", high = "#2f847c") +
+  # User-defined color of the labels
+  scale_color_manual(values = c("#a1ab70", "#37867c")) + 
+  
+  # Removla of the 'count' gradinet scale + change of the name pch character
+  guides(color = "none",
+         fill = "none") +
+   # White background
+  theme_void() + 
+  # Setting all the fonts to Ubuntu
+  theme(text = element_text(family = "Ubuntu"),
+        legend.key = element_blank()) 
+ 
+saveRDS(vn, "~/Documents/RNA-Seq_TFM/Extra_figures/venn/BC1_LD.LD.rds")
+```
+

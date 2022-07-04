@@ -1,0 +1,91 @@
+---
+title: "GO_figures_BC1_LD.BF"
+author: "FLC"
+date: '2022-06-03'
+output: html_document
+---
+```{r library_loading}
+library(readxl)
+library(ggplot2)
+library(stringr)
+```
+
+```{r ClueGO_output_loading}
+# Loading of the ClueGO output excel of BC1_LD.BF
+GO_BC1_LD.BF <- read_excel("/home/fllobet/Documents/RNA-Seq_TFM/GO/GO_BC1_LD.BF_3v3.xls")
+
+# Remove of the [] from the 'Associated genes found' 
+for (x in 1:dim(GO_BC1_LD.BF)[1]) {
+  GO_BC1_LD.BF[x,length(GO_BC1_LD.BF)] <- str_remove_all(str_remove(str_remove(GO_BC1_LD.BF[x,length(GO_BC1_LD.BF)],
+           "\\["),"\\]"),"\\,")
+  #GO_BC1_LD.BF[x,length(GO_BC1_LD.BF)]  <- str_replace(GO_BC1_LD.BF[x,length(GO_BC1_LD.BF)], "LOC110259958", "HBA1")
+  #GO_BC1_LD.BF[x,length(GO_BC1_LD.BF)]  <- str_replace(GO_BC1_LD.BF[x,length(GO_BC1_LD.BF)], "LOC100154873", "CA2")
+}
+
+
+# Re-ordering of the rows by corrected P-Value
+GO_BC1_LD.BF <- GO_BC1_LD.BF[order(GO_BC1_LD.BF$`Term PValue Corrected with Benjamini-Hochberg`),]
+```
+
+
+```{r GO_histogram}
+# Definition of the -log10 P-Value thershold
+log_TH <- 5.8
+xlb <- expression(paste("-",log[10],"(","adjusted p-values",")"))
+GO_BC1_LD.BF_plt <- ggplot(data = GO_BC1_LD.BF[which(-log(GO_BC1_LD.BF$`Term PValue Corrected with Benjamini-Hochberg`) > log_TH),], 
+       mapping = aes(x = -log(`Term PValue Corrected with Benjamini-Hochberg`), 
+                     y = forcats::fct_reorder(Term, `Term PValue Corrected with Benjamini-Hochberg`, .desc = TRUE), fill = GOGroups,
+                     width = .5)) + 
+  geom_col(position = "dodge") + 
+  geom_text(label = str_wrap(as.matrix(GO_BC1_LD.BF[which(-log(GO_BC1_LD.BF$`Term PValue Corrected with Benjamini-Hochberg`) > log_TH),ncol(GO_BC1_LD.BF)]), 120), 
+            hjust = 1.02, family = "Transport medium", fontface = "bold.italic", 
+            colour = c("#FFFFFF", # 1
+                       "#FFFFFF", # 2
+                       "#FFFFFF", # 3
+                       "#FFFFFF", # 4
+                       "#FFFFFF", # 5
+                       "#FFFFFF", # 6
+                       "#FFFFFF", # 7 (1/2)
+                       "#FFFFFF", # 8 (2/2)
+                       "#FFFFFF", # 9
+                       "#FFFFFF", # 10
+                       "#FFFFFF", # 11
+                       "#FFFFFF", # 12
+                       "#FFFFFF", # 13 (1/2)
+                       "#FFFFFF", # 14 (2/2)
+                       "#FFFFFF", # 15
+                       "#FFFFFF", # 16
+                       "#000000", # 17
+                       "#FFFFFF", # 18
+                       "#FFFFFF", # 19
+                       "#FFFFFF", # 20
+                       "#FFFFFF", # 21
+                       "#FFFFFF", # 22 (1/2)
+                       "#FFFFFF", # 23 (2/2)
+                       "#000000", # 24
+                       "#FFFFFF", # 25
+                       "#000000", # 26
+                       "#FFFFFF"), # 27
+            size = 2.5) + scale_fill_manual(values = c("#4d5d53", 
+                                                              "#bdb76b", 
+                                                              "#556b2f", 
+                                                              "#ace1af", 
+                                                              "#2f847c", 
+                                                              "#605C4E", 
+                                                              "#667761",
+                                                              "#789F62",
+                                                              "#2a9d8f",
+                                                              "#2f6284",
+                                                              "#283618",
+                                                              "#81b29a",
+                                                              "#264653",
+                                                              "#606c38",
+                                                              "#84a59d",
+                                                              "#50808e")) + scale_y_discrete(labels = str_wrap(GO_BC1_LD.BF$Term,50)) + scale_x_continuous(expand = c(0,0), limits = c(0,11.5), breaks = seq(0,11,2)) + labs(x = xlb, y = "") + 
+  theme_bw() + theme(legend.position = "none", text = element_text(family = "Ubuntu", face = "bold", colour = "black"), axis.text = element_text(face = "bold", colour = "black"))
+
+ggsave("/home/fllobet/Documents/RNA-Seq_TFM/GO/Plots/BC1_LD.BF.jpeg", GO_BC1_LD.BF_plt, dpi = "retina", height = 7, width = 10)
+
+```
+
+

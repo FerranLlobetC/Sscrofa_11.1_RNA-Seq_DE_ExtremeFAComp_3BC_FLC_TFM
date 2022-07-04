@@ -1,0 +1,90 @@
+---
+title: "Lib_sizes_Histograms"
+author: "FLC"
+date: '2022-06-17'
+output: html_document
+---
+
+```{r libraries}
+library(ggplot2)
+library(ggpubr)
+library(stringr)
+```
+
+```{r data_loading}
+# List of files
+fls <- list.files(path = "~/Documents/RNA-Seq_TFM/Extra_figures/venn/", 
+                  pattern = "*.rds", full.names = TRUE)
+
+############################# LOADING OF ALL THE DF ############################ 
+dfs <- c()
+for (x in fls) {
+  # A different object name per each DF
+  assign(str_remove(str_remove(x, pattern = "[,-z]+/"),".rds"), 
+         # The RDS object to load
+         readRDS(x))
+  # Vector containing all the DF names
+  dfs <- c(dfs, str_remove(str_remove(x, pattern = "[,-z]+/"),".rds"))
+} 
+
+
+############################### PCA's CREATION #################################
+# Counter variable 
+c <- 1 
+plt_name <- list()
+for (x in mget(dfs)) {
+
+  
+  # Creation of the PCA x
+  x <- x + labs(title = str_split_fixed(dfs[c], "\\.", 2)[2]) + 
+                    theme(title = element_text(family = "ubuntu", face = "bold", size = 14))
+  plt_name[[c]] <- x
+  print(dfs[c])
+  
+  # Combination of the 3 diagrams into a single image
+  if (c > 1 & str_split_fixed(dfs[c], "\\.",2)[1] != 
+      str_split_fixed(dfs[c-1], "\\.", 2)[1])  {
+    
+    # Arrangement of the 3 plots belonging to a backcross
+    plts <- plt_name[[c-1]] + plt_name[[c-3]] + plt_name[[c-2]]
+    
+    # Generation of the file name
+    out.f <- paste0("~/Documents/RNA-Seq_TFM/Extra_figures/ISF_venn_", str_split_fixed(dfs[c-1], "\\.", 2)[1], ".jpeg")
+    
+    print(paste0("Saving ", dfs[c-1], ", ", dfs[c-3], " & ", dfs[c-2], " in ",
+                 str_split_fixed(dfs[c-1], "\\.", 2)[1], ".jpeg"))
+    
+    # Save the image into a file
+    ggsave(out.f, plot = plts, dpi = "retina", 
+           height = 9.17, width = 16.4, bg = "white") 
+    
+  } else if (c == length(dfs)) {
+     # Arrangement of the 3 plots belonging to a backcross
+    plts <- plt_name[[c]] + plt_name[[c-2]] + plt_name[[c-1]]
+    
+    # Generation of the file name
+    out.f <- paste0("~/Documents/RNA-Seq_TFM/Extra_figures/ISF_venn_", str_split_fixed(dfs[c], "\\.", 2)[1], ".jpeg")
+    
+    print(paste0("Saving ", dfs[c], ", ", dfs[c-2], " & ", dfs[c-1], " in ",
+                 dfs[c], ".jpeg"))
+    
+    # Save the image into a file
+    ggsave(out.f, plot = plts, dpi = "retina", 
+           height = 9.17, width = 16.4, bg = "white") 
+  }
+  
+  # Update of the counter
+  c <- c + 1
+  
+}
+
+############################# COMBINING ALL 9 PLOTS ############################
+
+#plts <- ggarrange(plotlist = plt_name, ncol = 2, nrow = 2, align = "h")
+
+
+
+
+```
+
+

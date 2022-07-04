@@ -1,0 +1,94 @@
+---
+title: "GO_figures_BC1_DU.BF"
+author: "FLC"
+date: '2022-06-03'
+output: html_document
+---
+```{r library_loading}
+library(readxl)
+library(ggplot2)
+library(stringr)
+library(pathview)
+library(forcats)
+```
+
+```{r ClueGO_output_loading}
+# Loading of the ClueGO output excel of BC1_DU.BF
+GO_BC1_DU.BF <- read_excel("/home/fllobet/Documents/RNA-Seq_TFM/GO/GO_BC1_DU.BF_repGOOD.xls")
+
+# Remove of the [] from the 'Associated genes found' 
+for (x in 1:dim(GO_BC1_DU.BF)[1]) {
+  GO_BC1_DU.BF[x,length(GO_BC1_DU.BF)] <- str_remove_all(str_remove(str_remove(GO_BC1_DU.BF[x,length(GO_BC1_DU.BF)],"\\["),"\\]"),"\\,")  
+}
+
+# Re-ordering of the rows by corrected P-Value
+GO_BC1_DU.BF <- GO_BC1_DU.BF[order(GO_BC1_DU.BF$`Term PValue Corrected with Benjamini-Hochberg`),]
+```
+
+
+```{r}
+xlb <- expression(paste("-",log[10],"(","adjusted p-values",")"))
+
+# -log10(PV) filtering:
+GO_BC1_DU.BF_f <- GO_BC1_DU.BF[which(-log(GO_BC1_DU.BF$`Term PValue Corrected with Benjamini-Hochberg`) > 20),]
+GO_BC1_DU.BF_plt <- ggplot(data = GO_BC1_DU.BF_f, 
+       mapping = aes(x = -log(`Term PValue Corrected with Benjamini-Hochberg`), 
+                     y = forcats::fct_reorder(Term, `Term PValue Corrected with Benjamini-Hochberg`, .desc = TRUE), fill = GOGroups, width = 0.5)) + 
+  geom_col(position = "dodge") + 
+ geom_text(label = str_wrap(GO_BC1_DU.BF_f$`Associated Genes Found`, 100), 
+            hjust = -0.01, family = "Ubuntu", fontface = "bold.italic", 
+            colour = "#000000", size = 2) + 
+  scale_fill_manual(values = c("#2F847C",
+                               "#ACE1AF",
+                               "#DBD76B",
+                               "#4D5D53",
+                               "#2F6284",
+                               "#355070",
+                               "#023047",
+                               "#264653",
+                               "#2A9D8F",
+                               "#283618",
+                               "#81B29A")) + 
+  scale_y_discrete(labels = str_wrap(GO_BC1_DU.BF_f$Term[order(GO_BC1_DU.BF_f[,5], decreasing = TRUE)],
+                                     30)) + 
+  scale_x_continuous(expand = c(0,0), limits = c(0,100),
+                     breaks = seq(0,39,2)) + 
+  labs(x = xlb, y = "") +
+  theme_bw() + theme(legend.position = "none", text = element_text(family = "Ubuntu", face = "bold", colour = "black"), axis.text = element_text(face = "bold", colour = "black"))
+
+
+ggsave("/home/fllobet/Documents/RNA-Seq_TFM/GO/Plots/BC1_DU.BF.jpeg", GO_BC1_DU.BF_plt, dpi = "retina", width = 10, height = 7)
+```
+
+
+
+```{r}
+
+#library(remotes)
+#remotes::install_version("Rttf2pt1", version = "1.3.8")
+#library(extrafont)
+#font_import(paths = c("/usr/share/fonts/truetype/"), pattern = "Ubuntu*")
+# To have an actual gradient of expression into the KEGG pathway mapping
+```
+
+```{r KEGG_PPAR_Pathway}
+genes <- paste(str_remove(str_remove(str_remove(GO_BC1_DU.BF$`Associated Genes Found`,"\\["),"\\]"),"\\,"),
+collapse = " ")
+
+genes <- str_remove(unlist(strsplit(genes, "\\s+")),"\\,")
+
+genes <- unique(genes)
+
+pathview(gene.data = genes, pathway.id = "03320", species = "Sus scrofa", 
+         kegg.native = T, gene.idtype = "SYMBOl")
+```
+
+```{r}
+pathview(gene.data = genes, pathway.id = "00140", species = "Sus scrofa", kegg.native = T, gene.idtype = "SYMBOl")
+
+pathview(gene.data = genes, pathway.id = "04975", species = "Sus scrofa", kegg.native = T, gene.idtype = "SYMBOl")
+
+```
+
+
+

@@ -1,0 +1,94 @@
+---
+title: "GO_figures_BC1_LD.LV"
+author: "FLC"
+date: '2022-06-03'
+output: html_document
+---
+```{r library_loading}
+library(readxl)
+library(ggplot2)
+library(stringr)
+library(forcats)
+```
+
+```{r ClueGO_output_loading}
+# Loading of the ClueGO output excel of BC1_LD.LV
+GO_BC1_LD.LV <- read_excel("/home/fllobet/Documents/RNA-Seq_TFM/GO/GO_BC1_LD.LV.xls")
+
+# Remove of the [] from the 'Associated genes found' 
+for (x in 1:dim(GO_BC1_LD.LV)[1]) {
+  GO_BC1_LD.LV[x,length(GO_BC1_LD.LV)] <- str_remove_all(str_remove(str_remove(GO_BC1_LD.LV[x,length(GO_BC1_LD.LV)],"\\["),"\\]"),"\\,")
+  #GO_BC1_LD.LV[x,length(GO_BC1_LD.LV)]  <- str_replace(GO_BC1_LD.LV[x,length(GO_BC1_LD.LV)], "LOC110259958", "HBA1")
+  #GO_BC1_LD.LV[x,length(GO_BC1_LD.LV)]  <- str_replace(GO_BC1_LD.LV[x,length(GO_BC1_LD.LV)], "LOC100154873", "CA2")
+}
+
+
+# Re-ordering of the rows by corrected P-Value
+GO_BC1_LD.LV <- GO_BC1_LD.LV[order(GO_BC1_LD.LV$`Term PValue Corrected with Benjamini-Hochberg`),]
+```
+
+```{r}
+# MANUALL TERM CHANGES
+GO_BC1_LD.LV[which(GO_BC1_LD.LV[,2] == "oxidoreductase activity, acting on paired donors, with incorporation or reduction of molecular oxygen"),2] <- "oxidoreductase activity, paired donors, incorporation or reduction of oxygen"
+
+GO_BC1_LD.LV[which(GO_BC1_LD.LV[,2] == "oxidoreductase activity, acting on paired donors, with incorporation or reduction of molecular oxygen, NAD(P)H as one donor, and incorporation of one atom of oxygen"),2] <- "oxidoreductase activity, paired donors"
+```
+
+
+```{r}
+#font_import(paths = "/home/ubuntu/.fonts/", pattern = ".*")
+
+xlb <- expression(paste("-",log[10],"(","adjusted p-alues",")"))
+GO_BC1_LD.LV_plt <- ggplot(data = GO_BC1_LD.LV, 
+       mapping = aes(x = -log(`Term PValue Corrected with Benjamini-Hochberg`), 
+                     y = fct_reorder(Term, `Term PValue Corrected with Benjamini-Hochberg`, .desc = TRUE), fill = GOGroups, width = 0.5)) + 
+  geom_col(position = "dodge") +
+  geom_text(label = str_wrap(GO_BC1_LD.LV$`Associated Genes Found`, 120), 
+            hjust = 1.02, family = "Ubuntu", fontface = "bold.italic", 
+            colour = c("#FFFFFF", 
+                       "#FFFFFF",
+                       "#FFFFFF",
+                       "#FFFFFF",
+                       "#FFFFFF",
+                       "#FFFFFF",
+                       "#FFFFFF",
+                       "#FFFFFF",
+                       "#FFFFFF",
+                       "#FFFFFF",
+                       "#FFFFFF",
+                       "#FFFFFF",
+                       "#FFFFFF",
+                       "#000000",
+                       "#FFFFFF",
+                       "#FFFFFF",
+                       "#FFFFFF",
+                       "#FFFFFF",
+                       "#000000",
+                       "#FFFFFF",
+                       "#000000"),
+            size = 3) +
+  scale_fill_manual(values = c("#789F62",
+                               "#2f847c",
+                               "#8BE2C9",
+                               "#ACE1AF",
+                               "#DBD76B",
+                               "#2F6284",
+                               "#556b2f"),
+                    breaks = c("Group0",
+                               "Group1",
+                               "Group2",
+                               "Group3",
+                               "Group4",
+                               "Group5",
+                               "Group6")) + 
+  scale_y_discrete(labels = str_wrap(GO_BC1_LD.LV$Term,40),
+                   breaks = GO_BC1_LD.LV$Term[order(GO_BC1_LD.LV$`Term PValue Corrected with Benjamini-Hochberg`)]) + scale_x_continuous(expand = c(0,0), limits = c(0,11.5), breaks = seq(0,11,2)) + labs(x = xlb, y = "") + 
+  theme_bw() + theme(legend.position = "none", text = element_text(family = "ubuntu", face = "bold", colour = "black"), axis.text = element_text(face = "bold", colour = "black", size = 7), axis.title.x = element_text(face = "bold", family = "Ubuntu"))
+
+
+ggsave("/home/fllobet/Documents/RNA-Seq_TFM/GO/Plots/BC1_LD.LV.jpeg", GO_BC1_LD.LV_plt, dpi = "retina", height = 7, width = 10)
+```
+
+
+
+

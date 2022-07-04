@@ -1,0 +1,601 @@
+---
+title: "BC1_PI.Liver.R"
+author: "FLC"
+date: '2022-03-31'
+output:
+  pdf_document: default
+  html_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r library_loading, include=FALSE}
+#BiocManager::install("GenomicFeatures")
+library(tximport) # To import the counts data from RSEM.
+library(DESeq2)
+library(vsn) # To generate the mean vs variance plots
+library(pheatmap) # To include heatmaps
+library(RColorBrewer)  # To automatically generate beautiful palettes.
+library(ggplot2) # To make wonderful plots
+library(randomForest) # To generate the MDSplot
+library(GenomicFeatures)  # To open the GTF file used in the Mapping
+library(ggrepel)  # To see who is who in the plots
+library(stringr)  # To do fancy things with strings
+library(snpStats)  # To generate the Q-Q Plot of the p-values
+# BiocManager::install("snpStats")
+```
+
+```{r metadata_loading, echo = FALSE}
+### METADATA of ALL SAMPLES
+Animals <- read.delim("/home/fllobet/Documents/RNA-Seq_TFM/Animals.csv", sep = ";", stringsAsFactors = FALSE)
+
+## Cleaning of the metadata
+# Relocation of the Animal number as row names 
+row.names(Animals) <- paste0("X",Animals[,3])
+# The 'X' is necessary because R cannot use column names staring wiht a number.
+
+### Subset of the METADATA from the BC1_LD liver samples:
+
+# BC1_LD
+Animals.BC1_PI <- Animals[which(Animals[,2] == "BC1_PI"),]
+# Liver 
+Animals.BC1_PI.LV <- Animals.BC1_PI[which(Animals.BC1_PI[,4] == "Liver"),] 
+Animals.BC1_PI.LV
+
+################################################################################
+# Removal of unutilized objects
+rm(Animals, Animals.BC1_PI)
+```
+
+## `RSEM` counts loading using `tximport`
+
+```{r tximport_RSEM_counts_loading}
+### IMPORT of counts using 'tximportData'
+# Object that contains the path to all the '.genes.results' RSEM output files. 
+BC1_PI.PORK_06 <- file.path("/home/fllobet/Documents/RNA-Seq_TFM/COUNTS/Genes/PK06", paste0(Animals.BC1_PI.LV$SAMPLE_NAME, ".genes.results"))
+# Names of the columns
+names(BC1_PI.PORK_06) <- paste0("X", Animals.BC1_PI.LV$SAMPLE_NAME) 
+# The 'X' is necessary because R cannot use column names staring wiht a number.
+
+### IMPORT
+tx.BC1_PI.LV <- tximport(BC1_PI.PORK_06, type ="rsem", txIn = FALSE, txOut = FALSE)
+
+# Header of the imported counts
+head(tx.BC1_PI.LV$counts)
+# Note that the number are still decimal.
+
+################################################################################
+# Removal of unutilized objects
+rm(BC1_PI.PORK_06)
+```
+
+## Generation of the dds object
+
+Before the RSEM-counts matrix can be converted into a `dds` object it is
+necessary to apply the **trick** proposed by the creator of `DESeq2` and
+`tximport`. This **trick** solves the 0-length features error.
+
+```{r trick, echo = FALSE}
+# Removal of 0-length features and 0-counts features as instructed in:
+# https://support.bioconductor.org/p/84304/
+# The person who states this solution is the developer of 'tximport'. 
+tx.BC1_PI.LV$length[tx.BC1_PI.LV$length == 0] <- 1
+
+```
+
+After the trick is done. The counts can effectively be converted into a
+`dds` object.
+
+```{r dds_object}
+### Standard 'dds' object:
+dds.BC1_PI.LV <- DESeqDataSetFromTximport(tx.BC1_PI.LV,
+                              colData = Animals.BC1_PI.LV,
+                              design = ~ Group) # This design is temporary. 
+
+# Header of the counts now converted into postive integers: 
+head(counts(dds.BC1_PI.LV)) # This counts are unormalized.
+
+# Storing the positive-integer counts into a count matrix
+CMX_dds.BC1_PI.LV <- counts(dds.BC1_PI.LV)
+colnames(CMX_dds.BC1_PI.LV) <- str_replace(colnames(CMX_dds.BC1_PI.LV),"X","")
+CMX_dds.BC1_PI.LV <- cbind(rownames(CMX_dds.BC1_PI.LV), CMX_dds.BC1_PI.LV) 
+colnames(CMX_dds.BC1_PI.LV) <- c("Feature", colnames(CMX_dds.BC1_PI.LV)[2:dim(CMX_dds.BC1_PI.LV)[2]])
+write.table(CMX_dds.BC1_PI.LV, file = "/home/fllobet/Documents/RNA-Seq_TFM/BC1_PI.LV/IntegerCOUNTS.BC1_PI.liver.csv", sep =";", row.names = FALSE)
+################################################################################
+# Removal of unutilized objects
+rm(tx.BC1_PI.LV)
+```
+
+Note that now the **counts are positive integers instead** of decimals.
+This is important because the algorithms of `DESeq2` use the premise
+that the input counts data follow a **binomial negative distribution**
+which is **not continuous**.
+
+## Pre-filtering
+
+The filter applied, instructed by JMF: - minimum nº of counts per
+feature (row) == nº samples
+
+```{r pre_filtering}
+# Number of samples
+N <- nrow(Animals.BC1_PI.LV)
+# Features to keep
+keep <- rowSums(counts(dds.BC1_PI.LV)) >= N
+
+dim(dds.BC1_PI.LV)
+# Application of the pre-filtering over the dds object. 
+dds.BC1_PI.LV <- dds.BC1_PI.LV[keep,]
+
+################################################################################
+# Removal of unutilized objects
+#rm(keep)
+```
+
+## Exploratory data analysis (EDA)
+
+This step is key because it serves two main proposes: -
+**Familiarization** with the data and its particularities. -
+Identification of **technical artifacts**.
+
+### Normalized counts
+
+Any EDA of RNA-Seq data must never be done with raw counts as
+differences between samples (library depth) might lead to wrong
+observations.
+
+`DESeq2` can perform **2 diffrent normalizations**: - By **library
+size** - By **library size** + **gene length**
+
+By deafult `DESeq2` performs the first one as the authors say it is
+enough most of the times.
+
+```{r normalized_counts}
+
+# Generation of normalization factors, DESeq2 on its own will choose if it 
+# creates 'sj' or 'sij' 
+dds.BC1_PI.LV <- estimateSizeFactors(dds.BC1_PI.LV)
+
+# DESeq2 can use 2 Normalization constants: sj & sij
+# 'sj' 
+head(sizeFactors(dds.BC1_PI.LV)) 
+# It is empty because gene-specific normalization factors. Why? I belive it is 
+# linked to the fact we use RSEM for the counts.
+
+# 'sij' 
+head(normalizationFactors(dds.BC1_PI.LV))
+
+### Normalization using above sij within the means (muij) of each gene-sample.
+dds.BC1_PI.LV.norm.c <- counts(dds.BC1_PI.LV, normalized = TRUE) # This parameter is what normalized the count data using the above sij factors. 
+print("Normalized counts")
+head(dds.BC1_PI.LV.norm.c)
+```
+
+I believe that our data contains just `normalizationFactors` because the
+counts were obtained with RSEM which takes into account **feature
+length**.
+
+### Pseudocounts
+
+```{r pseudocounts_generation}
+dds.BC1_PI.LV.pseudo <- normTransform(dds.BC1_PI.LV)
+```
+
+### rlog transformation
+
+Because CNAG and JVH both performed an rlog transformation I should also
+do it. After it, it is expected that the variance of small mean samples
+(the most problematic in RNA-Seq experiments) get reduced.
+
+```{r}
+vsd <- vst(dds.BC1_PI.LV, blind=FALSE)
+# rlog transformation
+rlg.dds.BC1_PI.LV <- rlog(dds.BC1_PI.LV, blind=FALSE)
+```
+
+Now that we have both pseudocounts and `rlog` transformed counts we can
+determine the effect of the rlog transformation
+
+```{r}
+# Mean vs SD plot of the pseudocounts
+meanSdPlot(assay(dds.BC1_PI.LV.pseudo))
+
+# Mean vs SD plot of the rlog transformed counts
+meanSdPlot(assay(rlg.dds.BC1_PI.LV))
+
+# Vsd tranfsormation appears to be worse for low mean features. Furthermore, in 
+# general the variance is lower in the rlog transformation. 
+# meanSdPlot(assay(vsd))
+```
+
+We can observe that effectively the **`rlog` transformation** causes
+that the **variance of low-mean features is greatly reduced**. Also a
+general reduction of the variance can be observed.
+
+### Heatmaps
+
+It is important to perform heat-maps to be able to interpret visually
+the counts matrix, as our human brain is not powerful enough to
+interpret a large numerical matrix.
+
+```{r heatmaps}
+# Selection of the top 20 most globally expressed features (rows).
+select <- order(rowMeans(dds.BC1_PI.LV.norm.c),
+                decreasing=TRUE)[1:20]
+df <- as.data.frame(colData(dds.BC1_PI.LV)[,c("Sex","Group")])
+
+# Heat map of the normalized pseudocounts
+pheatmap(assay(dds.BC1_PI.LV.pseudo)[select,], cluster_rows=FALSE, show_rownames=TRUE,
+         cluster_cols=FALSE, annotation_col=df)
+
+# Heat map of the rlog transformed counts
+pheatmap(assay(rlg.dds.BC1_PI.LV)[select,], cluster_rows=FALSE, show_rownames=TRUE,
+         cluster_cols=FALSE, annotation_col=df)
+
+################################################################################
+# Removal of unutilized objects
+rm(df)
+```
+
+We see that the Albumin gene *ALB* is the **most expressed gene** in all
+the samples. This is likely being this protein known for its high
+abundance in the liver. It also looks like the **`rlog` transformation**
+made the colors palette more blue, meaning that the values got reduced
+probably spacing better the data.
+
+### Heatmap of euclidean distances
+
+A heat map of this distance matrix gives us an overview over
+similarities and dissimilarities between samples. It might **help us to
+identify technical outliers**.
+
+```{r euclidean_distances_heatmap}
+# Pseudocounts
+# Computation of the counts Eculidean distances
+pseudo_dist <- dist(t(assay(dds.BC1_PI.LV.pseudo)))
+# Conversion into a matrix
+pseudo_d.Mtx <- as.matrix(pseudo_dist)
+
+# Addition of the GROUP information
+rownames(pseudo_d.Mtx) <- dds.BC1_PI.LV.pseudo$Group
+colnames(pseudo_d.Mtx) <- NULL
+
+colors <- colorRampPalette(rev(brewer.pal(9, "YlGnBu")))(255)
+
+# Heatmap
+pheatmap(pseudo_d.Mtx,
+         clustering_distance_rows=pseudo_dist,
+         clustering_distance_cols=pseudo_dist,
+         col=colors)
+
+# rlog transformed counts
+# Computation of the counts Eculidean distances
+rlg_dist <- dist(t(assay(rlg.dds.BC1_PI.LV)))
+# Conversion into a matrix
+rlg_d.Mtx <- as.matrix(rlg_dist)
+
+# Addition of the SEX & GROUP information
+rownames(rlg_d.Mtx) <- dds.BC1_PI.LV.pseudo$Group
+colnames(rlg_d.Mtx) <- rlg.dds.BC1_PI.LV$SAMPLE_NAME
+
+colors <- colorRampPalette(rev(brewer.pal(9, "YlGnBu")))(255)
+
+# Heatmap
+pheatmap(rlg_d.Mtx,
+         clustering_distance_rows=rlg_dist,
+         clustering_distance_cols=rlg_dist,
+         col=colors)
+
+################################################################################
+# Removal of unutilized objects
+rm(pseudo_d.Mtx, pseduo_dist, pseudo_dist, rlg_dist, rlg_d.Mtx, colors)
+```
+
+It looks like sample 70154_LV differs a lot from some of the other
+samples but it does not have any importance.
+
+### PCA
+
+Related to the distance matrix is the PCA plot, which shows the samples
+in the 2D plane spanned by their first two principal components. This
+type of plot is useful for visualizing the overall effect of
+experimental covariates and batch effects. We might see separation
+according to Group or not. Furthmore this plot is what **JMF wants**
+
+First I generate a PCA using all the features:
+
+```{r whole_pca}
+# By default plotPCA uses just the top 500 more variable features.
+
+# Sutbtitle
+rlg <- expression(paste(bold("rlog"), " transformation applied"))
+capt <- expression(paste("Counts of ", bold("liver"), " samples of ", bold("BC1_PI")))
+
+pcaData <- plotPCA(rlg.dds.BC1_PI.LV, intgroup=c("Group"), returnData=TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+ggplot(pcaData, aes(PC1, PC2, color=Group)) +
+  geom_point(size=3) + geom_text_repel(aes(label = str_replace(str_replace(rownames(pcaData), "_LV", ""),"X", ""))) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
+  scale_color_manual(values = c("#2f847c", "#bdb76b")) + labs(title = "PCA of the top 500 more variable features", subtitle = rlg, 
+                                                              caption = capt) + theme_bw()
+```
+
+# DEG Analysis
+
+## Removal of the outlier
+```{r removal_70225}
+# Visualization of the animal list to identify the index which is the animal 
+# to remove
+colData(dds.BC1_PI.LV)
+
+# Removal of 70225
+dds.BC1_PI.LV_wo70225 <- dds.BC1_PI.LV[,-3]
+
+# Visualization of the animal list to confirm the changes
+colData(dds.BC1_PI.LV_wo70225)
+```
+
+## Definition of the reference level
+
+In this case the DEG Analysis will be performed using **only** the
+**male samples**. Therefore, the design requires to only use Group as
+the **interest variable**. It is important to ensure that the **L**
+(LOW) group is considered the **reference**.
+
+Note that the `DESeq` function will perform the normalization itself so
+the `dds` object using the **raw counts** must be used as its input.
+
+```{r ref_level_def}
+# Visualization of the 'dds' object:
+colData(dds.BC1_PI.LV_wo70225)
+
+# Definition of the L (LOW) group as the reference group:
+dds.BC1_PI.LV_wo70225$Group <- relevel(dds.BC1_PI.LV_wo70225$Group, 
+                                           ref = "L")
+```
+
+## DEG Analysis
+
+Once the correct reference level has been established the **actual DEG
+Analysis** can be performed. **IMPORTANT regarding the `alpha` parameter
+inside of the `results()` function**
+
+```{comment}
+?results:
+alpha: the significance cutoff used for optimizing the independent
+          filtering (by default 0.1). If the adjusted p-value cutoff
+         (FDR) will be a value other than 0.1, ‘alpha’ should be set
+         to that value.
+
+I do not know what is the "independent filtering" but I know that the FDR cutoff
+is the alpha of FDR hence is the % of false positives accpeted, as well as the 
+therhold from which a p.adj.val is chooseen as signficant or not. Note that 
+"'alpha' of this indepdent filtering should be the same as the signficance level
+for the FDR (p adjusted values)."
+```
+
+# 
+
+```{r DEG_Analysis}
+# Update of the 'dds' object with the DEG analysis
+dds.BC1_PI.LV_wo70225 <- DESeq(dds.BC1_PI.LV_wo70225)
+# Results with a == 0.1
+res.BC1_PI.LV_wo70225 <- results(dds.BC1_PI.LV_wo70225)
+# Results with a == 0.05
+res.BC1_PI.LV_wo70225.a_0.05 <- results(dds.BC1_PI.LV_wo70225, alpha=0.05)
+```
+
+In order to improve the analysis of the results several extra
+embellishment steps can be done.
+
+```{r DEGA_results_embellishment_a_0.1}
+# Summary of the up and down regulated genes in this study:
+summary(res.BC1_PI.LV_wo70225)
+
+# Number of significant LFCs...
+sum(res.BC1_PI.LV_wo70225$padj < 0.1, na.rm = TRUE)
+
+```
+
+```{r DEGA_results_embellishment_a_0.05}
+# Summary of the up and down regulated genes in this study:
+summary(res.BC1_PI.LV_wo70225.a_0.05)
+
+# Number of significant LFCs...
+sum(res.BC1_PI.LV_wo70225.a_0.05$padj < 0.05, na.rm = TRUE)
+
+# Visualization of the significant LFCs...
+#res.BC1_PI.LV.a_0.05[which(res.BC1_PI.LV.a_0.05$padj < 0.05),]
+
+```
+
+```{r results_writing}
+# Storing the results into CSV files:
+
+# alpha == 0.1 in the independent filtering  
+#write.table(as.data.frame(na.omit(res.BC1_PI.LV)), 
+  #        file="BC1_PI.LV.DEGanalysis_results_a_0.1.csv", sep = ";")
+
+# alpha == 0.05 in the independent filtering 
+DFres.BC1_PI.LV_wo70225.a_0.05 <- as.data.frame(na.omit(res.BC1_PI.LV_wo70225.a_0.05))
+
+DFres.BC1_PI.LV_wo70225.a_0.05 <- cbind(rownames(DFres.BC1_PI.LV_wo70225.a_0.05), DFres.BC1_PI.LV_wo70225.a_0.05)
+colnames(DFres.BC1_PI.LV_wo70225.a_0.05) <- c("feature", colnames(DFres.BC1_PI.LV_wo70225.a_0.05)[2:length(DFres.BC1_PI.LV_wo70225.a_0.05)])
+
+write.table(DFres.BC1_PI.LV_wo70225.a_0.05, row.names = FALSE, 
+          file="BC1_PI.LV._wo70255.DEGanalysis_results_a_0.05.csv", sep = ";")
+```
+
+### MA Plot
+
+A good option to visualize the RNA-Seq results is to generate a MA Plot.
+
+```{r}
+# MA plot
+plotMA(res.BC1_PI.LV_wo70225.a_0.05)
+```
+
+Another interesting plot is the **QQ-plot**:
+
+```{r}
+# Function form the package 'snpStats'
+qq.chisq(-2*log(res.BC1_PI.LV_wo70225.a_0.05$pvalue),df=2,pvals=T,overdisp=T, 
+         col = "#4d5d53", col.shade = "#ace1af", main = "QQ plot of p-values.")
+```
+
+## Addition of LFC thershold
+
+A part from the **p.adjusted value** we use an extra criterion:
+**Fold-Change (FC)**. We use 2 different LFC thresholds: 
+- Absolute 1.2 of FC 
+- Absolute 1.5 of FC 
+Which in turn end up creating 4 combinations: 
+- 1.2 of FC + alpha 0.1 
+- 1.5 of FC + alpha 0.05
+- 1.2 of FC + alpha 0.1 
+- 1.5 of FC + alpha 0.05
+
+### Alpha = 0.1
+
+```{r FC_1.2+a_0.1}
+# FC = 1.2
+lg2_fc1.2 <- log2(1.2)
+
+# Selection of the features with a log2 FC higher or lower than 1.2:
+# Higher
+res.BC1_PI.LV_wo70225_above_fc.12 <- res.BC1_PI.LV_wo70225[which(res.BC1_PI.LV_wo70225$log2FoldChange >= lg2_fc1.2),]
+# Lower 
+res.BC1_PI.LV_wo70225_below_fc.12 <- res.BC1_PI.LV_wo70225[which(res.BC1_PI.LV_wo70225$log2FoldChange <= -lg2_fc1.2),]
+# Merge
+res.BC1_PI.LV_wo70225_abv.blw_fc.12 <- rbind(res.BC1_PI.LV_wo70225_above_fc.12, res.BC1_PI.LV_wo70225_below_fc.12)
+```
+
+The number of significant genes gets reduced from `r sum(res.BC1_PI.LV_wo70225$padj < 0.1, na.rm = TRUE)` to `r sum(res.BC1_PI.LV_wo70225_abv.blw_fc.12$padj < 0.1, na.rm = TRUE)`.
+
+Number of up-regulated genes: `r sum(res.BC1_PI.LV_wo70225_above_fc.12$padj < 0.1, na.rm = TRUE)`
+Number of down-regulated genes: `r sum(res.BC1_PI.LV_wo70225_below_fc.12$padj < 0.1, na.rm = TRUE)`
+
+```{r FC_1.5+a_0.1}
+# FC = 1.5
+lg2_fc1.5 <- log2(1.5)
+
+# Selection of the features with a log2 FC higher or lower than 1.5:
+# Higher
+res.BC1_PI.LV_wo70225_above_fc.15 <- res.BC1_PI.LV_wo70225[which(res.BC1_PI.LV_wo70225$log2FoldChange >= lg2_fc1.5),]
+# Lower 
+res.BC1_PI.LV_wo70225_below_fc.15 <- res.BC1_PI.LV_wo70225[which(res.BC1_PI.LV_wo70225$log2FoldChange <= -lg2_fc1.5),]
+# Merge
+res.BC1_PI.LV_wo70225_abv.blw_fc.15 <- rbind(res.BC1_PI.LV_wo70225_above_fc.15, res.BC1_PI.LV_wo70225_below_fc.15)
+```
+
+The number of significant genes get reduced from `r sum(res.BC1_PI.LV_wo70225$padj < 0.1, na.rm = TRUE)` to `r sum(res.BC1_PI.LV_wo70225_abv.blw_fc.15$padj < 0.1, na.rm = TRUE)`.
+
+Number of up-regulated genes: `r sum(res.BC1_PI.LV_wo70225_above_fc.15$padj < 0.1, na.rm = TRUE)`
+Number of down-regulated genes: `r sum(res.BC1_PI.LV_wo70225_below_fc.15$padj < 0.1, na.rm = TRUE)`
+
+### Alpha = 0.05
+
+```{r FC_1.2+a_0.1}
+# FC = 1.2
+lg2_fc1.2 <- log2(1.2)
+
+# Selection of the features with a log2 FC higher or lower than 1.2:
+# Higher
+res.BC1_PI.LV_wo70225.a_0.05above_fc.12 <- res.BC1_PI.LV_wo70225.a_0.05[which(res.BC1_PI.LV_wo70225.a_0.05$log2FoldChange >= lg2_fc1.2),]
+# Lower 
+res.BC1_PI.LV_wo70225.a_0.05below_fc.12 <- res.BC1_PI.LV_wo70225.a_0.05[which(res.BC1_PI.LV_wo70225.a_0.05$log2FoldChange <= -lg2_fc1.2),]
+# Merge
+res.BC1_PI.LV_wo70225.a_0.05abv.blw_fc.12 <- rbind(res.BC1_PI.LV_wo70225.a_0.05above_fc.12, res.BC1_PI.LV_wo70225.a_0.05below_fc.12)
+```
+
+The number of significant genes gets reduced from `r sum(res.BC1_PI.LV_wo70225.a_0.05$padj < 0.05, na.rm = TRUE)` to `r sum(res.BC1_PI.LV_wo70225.a_0.05abv.blw_fc.12$padj < 0.05, na.rm = TRUE)`.
+
+Number of up-regulated genes: `r sum(res.BC1_PI.LV_wo70225.a_0.05above_fc.12$padj < 0.05, na.rm = TRUE)`
+Number of down-regulated genes: `r sum(res.BC1_PI.LV_wo70225.a_0.05below_fc.12$padj < 0.05, na.rm = TRUE)`
+
+```{r FC_1.5+a_0.05}
+# FC = 1.5
+lg2_fc1.5 <- log2(1.5)
+
+# Selection of the features with a log2 FC higher or lower than 1.5:
+# Higher
+res.BC1_PI.LV_wo70225.a_0.05above_fc.15 <- res.BC1_PI.LV_wo70225.a_0.05[which(res.BC1_PI.LV_wo70225.a_0.05$log2FoldChange >= lg2_fc1.5),]
+# Lower 
+res.BC1_PI.LV_wo70225.a_0.05below_fc.15 <- res.BC1_PI.LV_wo70225.a_0.05[which(res.BC1_PI.LV_wo70225.a_0.05$log2FoldChange <= -lg2_fc1.5),]
+# Merge
+res.BC1_PI.LV_wo70225.a_0.05abv.blw_fc.15 <- rbind(res.BC1_PI.LV_wo70225.a_0.05above_fc.15, res.BC1_PI.LV_wo70225.a_0.05below_fc.15)
+```
+
+The number of significant genes gets reduced from `r sum(res.BC1_PI.LV_wo70225.a_0.05$padj < 0.05, na.rm = TRUE)` to `r sum(res.BC1_PI.LV_wo70225.a_0.05abv.blw_fc.15$padj < 0.05, na.rm = TRUE)`.
+
+Number of up-regulated genes: `r sum(res.BC1_PI.LV_wo70225.a_0.05above_fc.15$padj < 0.05, na.rm = TRUE)`
+Number of down-regulated genes: `r sum(res.BC1_PI.LV_wo70225.a_0.05below_fc.15$padj < 0.05, na.rm = TRUE)`
+
+# Counts value of all samples for the 1.5 FC + 0.05 FDR cutoff features
+```{r table_creation}
+signif.genes_wo70225 <- rownames(res.BC1_PI.LV_wo70225.a_0.05abv.blw_fc.15[which(res.BC1_PI.LV_wo70225.a_0.05abv.blw_fc.15$padj < 0.05),])
+
+CNTS_wo70225_0.05_1.5 <- counts(dds.BC1_PI.LV[signif.genes_wo70225,])
+
+
+
+# alpha == 0.05 in the independent filtering 
+DFCNTS_wo70225_0.05_1.5 <- as.data.frame(na.omit(CNTS_wo70225_0.05_1.5))
+
+DFCNTS_wo70225_0.05_1.5 <- cbind(rownames(DFCNTS_wo70225_0.05_1.5), DFCNTS_wo70225_0.05_1.5)
+colnames(DFCNTS_wo70225_0.05_1.5) <- c("feature", colnames(DFCNTS_wo70225_0.05_1.5)[2:length(DFCNTS_wo70225_0.05_1.5)])
+# Removal of the 'X' before the animal name
+colnames(DFCNTS_wo70225_0.05_1.5) <- str_replace(colnames(DFCNTS_wo70225_0.05_1.5), "X", "")
+
+# Ordering the columns by 6 Low -> 6 High
+DFCNTS_wo70225_0.05_1.5 <- DFCNTS_wo70225_0.05_1.5[, c("feature", "70225_LV", "70240_LV", "70353_LV", "70407_LV", "70490_LV", "70498_LV",
+                                       "70258_LV", "70330_LV", "70395_LV", "70476_LV", "70484_LV", "70515_LV")]
+
+# Writing into a CSV file:
+write.table(DFCNTS_wo70225_0.05_1.5, "/home/fllobet/Documents/RNA-Seq_TFM/BC1_PI.LV/BC1_PI.LV_counts.wo_70225_Signif.0.05_FC_1.5.csv", sep = ";", row.names = FALSE)
+```
+
+
+
+
+# Plot of means of normalized counts vs -log~10~ p.values
+```{r p.value_mean}
+plot(res.BC1_PI.LV$baseMean+1, -log10(res.BC1_PI.LV$pvalue),
+     log="x", xlab="Mean of normalized counts",
+     ylab=expression(-log[10](pvalue)),
+     ylim=c(0,30),
+     cex=.4, col= "#4d5d53",
+     main = "Distribution of Wald test p-values\ndepending on mean normalized counts of the gene")
+abline(h = -log10(0.1), lty = 2, lwd = 2, col = "#ace1af")
+abline(h = -log10(0.05), lty = 2, lwd = 2, col = "#2f847c")
+
+```
+
+
+```{r}
+use <- res.BC1_PI.LV$baseMean > metadata(res.BC1_PI.LV)$filterThreshold
+h1 <- hist(res.BC1_PI.LV$pvalue[!use], breaks=0:50/50, plot=FALSE)
+h2 <- hist(res.BC1_PI.LV$pvalue[use], breaks=0:50/50, plot=FALSE)
+colori <- c(`NOT pass Indep. Filt.`="#bdb76b", `Pass Indep. Filt. `="#ace1af")
+
+barplot(height = rbind(h1$counts, h2$counts), beside = FALSE,
+        col = colori, space = 0, main = "Wald test p-values distribution", ylab="Feature frequency", xlab = "p-value") 
+text(x = c(0, length(h1$counts)), y = 0, label = paste(c(0,1)),
+     adj = c(0.5,1.7), xpd=NA)
+legend("topright", fill=rev(colori), legend=rev(names(colori)))
+
+
+#BC1_PI.LV_pValues_dist.Indep_filt_COLOR
+```
+
+# GO Enrichment Analysis
+For this part I followed EMLG notes where `DESeq2` was also used to obtain the **DEG list**.
+```{r DEG_list}
+# The list of DEG genes is the list of IDs that I named 'signif.genes'
+signif.genes_wo70225
+
+signif.genes_wo70225 <- str_replace(signif.genes_wo70225, "_*", "")
+```
+
+

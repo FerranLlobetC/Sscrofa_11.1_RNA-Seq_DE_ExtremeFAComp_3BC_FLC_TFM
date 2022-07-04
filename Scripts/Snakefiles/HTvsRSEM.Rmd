@@ -1,0 +1,272 @@
+---
+title: "CountsCheck"
+author: "FLC"
+date: '2022-02-24'
+output: pdf_document
+---
+```{r libraries, echo=FALSE}
+library("readr")
+library("dplyr")
+```
+
+## HTSeq
+### 70258_LV
+```{r htseq70258_LV}
+# COUNTS OF 70258_LV
+HTSeq_70258_LV <- read_delim("/home/fllobet/Documents/RNA-Seq_TFM/HTvsRSEM/HTSeq/70258_LV.csv",
+    delim = "\t", escape_double = FALSE, 
+    col_names = FALSE, col_types = cols(X2 = col_integer()), 
+    na = "0", trim_ws = TRUE)
+
+# Naming of the columns
+colnames(HTSeq_70258_LV) <- c("Feature", "Counts")
+
+# Total number of counts
+toCnt <- sum(HTSeq_70258_LV[,2], na.rm = TRUE)
+Reads_70258 <- toCnt
+
+# NON-Feature rows
+rows_HTSeq_70258_LV <- tail(HTSeq_70258_LV, n=5)
+# Percentages
+rows_HTSeq_70258_LV[,2] <- ( rows_HTSeq_70258_LV[,2] / toCnt ) * 100
+
+HTSeq_70258_LV <- dplyr::slice(HTSeq_70258_LV, 1:(n() - 5))
+
+# Feature counts
+(sum(HTSeq_70258_LV[,2], na.rm = TRUE)/ toCnt ) * 100
+
+Cnt70258 <- toCnt
+
+# Summary + sd of 70258_LV:
+s_HTSeq_70258_LV <- summary(HTSeq_70258_LV[,2])
+stdev <- paste("Sd     :", sd(unlist(HTSeq_70258_LV[,2]), na.rm=TRUE))
+s_HTSeq_70258_LV <- rbind(s_HTSeq_70258_LV, stdev)
+
+### TOP 5
+head(HTSeq_70258_LV[order(-HTSeq_70258_LV$Counts),])
+```
+
+### 70407_LV
+```{r htseq70407_LV}
+# COUNTS OF 70407_LV
+HTSeq_70407_LV <- read_delim("/home/fllobet/Documents/RNA-Seq_TFM/HTvsRSEM/HTSeq/70407_LV.csv",
+    delim = "\t", escape_double = FALSE, 
+    col_names = FALSE, col_types = cols(X2 = col_integer()), 
+    na = "0", trim_ws = TRUE)
+
+# Naming of the columns
+colnames(HTSeq_70407_LV) <- c("Feature", "Counts")
+
+# Total number of counts
+toCnt <- sum(HTSeq_70407_LV[,2], na.rm = TRUE)
+Reads_70407 <- toCnt
+
+# NON-Feature rows
+rows_HTSeq_70407_LV <- tail(HTSeq_70407_LV, n=5)
+# Percentages
+rows_HTSeq_70407_LV[,2] <- ( rows_HTSeq_70407_LV[,2] / toCnt ) * 100
+
+HTSeq_70407_LV <- dplyr::slice(HTSeq_70407_LV, 1:(n() - 5))
+
+# Feature counts
+(sum(HTSeq_70407_LV[,2], na.rm = TRUE)/ toCnt ) * 100
+
+
+# Summary + sd of 70258_LV:
+s_HTSeq_70407_LV <- summary(HTSeq_70407_LV[,2])
+stdev <- paste("Sd     :", sd(unlist(HTSeq_70407_LV[,2]), na.rm=TRUE))
+s_HTSeq_70407_LV <- rbind(s_HTSeq_70407_LV, stdev)
+
+### TOP 5
+head(HTSeq_70407_LV[order(-HTSeq_70407_LV$Counts),])
+```
+
+## 70476_LV
+```{r htseq70476_LV}
+# COUNTS OF 70407_LV
+HTSeq_70476_LV <- read_delim("/home/fllobet/Documents/RNA-Seq_TFM/HTvsRSEM/HTSeq/70476_LV.csv",
+    delim = "\t", escape_double = FALSE, 
+    col_names = FALSE, col_types = cols(X2 = col_integer()), 
+    na = "0", trim_ws = TRUE)
+
+# Naming of the columns
+colnames(HTSeq_70476_LV) <- c("Feature", "Counts")
+
+# Total number of counts
+toCnt <- sum(HTSeq_70476_LV[,2], na.rm = TRUE)
+Reads_70476 <- toCnt
+
+# NON-Feature rows
+rows_HTSeq_70476_LV <- tail(HTSeq_70476_LV, n=5)
+# Percentages
+rows_HTSeq_70476_LV[,2] <- ( rows_HTSeq_70476_LV[,2] / toCnt ) * 100
+
+HTSeq_70476_LV <- dplyr::slice(HTSeq_70476_LV, 1:(n() - 5))
+
+# Feature counts
+(sum(HTSeq_70476_LV[,2], na.rm = TRUE)/ toCnt ) * 100
+
+
+# Summary + sd of 70258_LV:
+s_HTSeq_70476_LV <- summary(HTSeq_70476_LV[,2])
+stdev <- paste("Sd     :", sd(unlist(HTSeq_70476_LV[,2]), na.rm=TRUE))
+s_HTSeq_70476_LV <- rbind(s_HTSeq_70476_LV, stdev)
+
+### TOP 5
+head(HTSeq_70407_LV[order(-HTSeq_70407_LV$Counts),])
+```
+
+## 70490_LV
+```{r htseq70490_LV}
+# COUNTS OF 70407_LV
+HTSeq_70490_LV <- read_delim("/home/fllobet/Documents/RNA-Seq_TFM/HTvsRSEM/HTSeq/70490_LV.csv",
+    delim = "\t", escape_double = FALSE, 
+    col_names = FALSE, col_types = cols(X2 = col_integer()), 
+    na = "0", trim_ws = TRUE)
+
+# Naming of the columns
+colnames(HTSeq_70490_LV) <- c("Feature", "Counts")
+
+# Total number of counts
+toCnt <- sum(HTSeq_70490_LV[,2], na.rm = TRUE)
+Reads_70490 <- toCnt
+# NON-Feature rows
+rows_HTSeq_70490_LV <- tail(HTSeq_70490_LV, n=5)
+# Percentages
+rows_HTSeq_70490_LV[,2] <- ( rows_HTSeq_70490_LV[,2] / toCnt ) * 100
+
+HTSeq_70490_LV <- dplyr::slice(HTSeq_70490_LV, 1:(n() - 5))
+
+# Feature counts
+(sum(HTSeq_70490_LV[,2], na.rm = TRUE)/ toCnt ) * 100
+
+
+# Summary + sd of 70258_LV:
+s_HTSeq_70490_LV <- summary(HTSeq_70490_LV[,2])
+stdev <- paste("Sd     :", sd(unlist(HTSeq_70490_LV[,2]), na.rm=TRUE))
+s_HTSeq_70490_LV <- rbind(s_HTSeq_70490_LV, stdev)
+
+### TOP 5
+head(HTSeq_70490_LV[order(-HTSeq_70490_LV$Counts),])
+```
+
+## RSEM
+### 70258_LV
+```{r rsem70258_LV}
+### Genes table loading
+genes_70258_LV <- read_delim("~/Documents/RNA-Seq_TFM/HTvsRSEM/RSEM/70258_LV.genes.results", 
+    delim = "\t", escape_double = FALSE, 
+    na = "0", trim_ws = TRUE, show_col_types = FALSE)
+
+### Number of NA features
+NA_RSEM_70258 <- genes_70258_LV %>% 
+  count(expected_count)
+NA_RSEM_70258 <- NA_RSEM_70258[1,]
+
+### Mean and SD of counts
+# Removal of 0.00 rows
+rows <- c(!genes_70258_LV[,5] == 0.00)
+genes_70258_LV <- genes_70258_LV[rows,]
+
+# Mean
+summary(genes_70258_LV[,5])
+# SD
+apply(genes_70258_LV[,5], 2, sd)
+
+### % of mapped reads
+sum(genes_70258_LV[,5]) / Reads_70258 * 100
+
+### TOP 5
+head(genes_70258_LV[order(-genes_70258_LV$expected_count),])
+```
+
+### 70407_LV
+```{r rsem70407_LV}
+### Genes table loading
+genes_70407_LV <- read_delim("~/Documents/RNA-Seq_TFM/HTvsRSEM/RSEM/70407_LV.genes.results", 
+    delim = "\t", escape_double = FALSE, 
+    na = "0", trim_ws = TRUE, show_col_types = FALSE)
+
+### Number of NA features
+NA_RSEM_70407 <- genes_70407_LV %>% 
+  count(expected_count)
+NA_RSEM_70407 <- NA_RSEM_70407[1,]
+NA_RSEM_70407
+
+### Mean and SD of counts
+# Removal of 0.00 rows
+rows <- c(!genes_70407_LV[,5] == 0.00)
+genes_70407_LV <- genes_70407_LV[rows,]
+
+# Mean
+summary(genes_70407_LV[,5])
+# SD
+apply(genes_70407_LV[,5], 2, sd)
+
+### % of mapped reads
+sum(genes_70407_LV[,5]) / Reads_70407 * 100
+
+### TOP 5
+head(genes_70407_LV[order(-genes_70407_LV$expected_count),])
+```
+
+### 70476_LV
+```{r rsem70476_LV}
+### Genes table loading
+genes_70476_LV <- read_delim("~/Documents/RNA-Seq_TFM/HTvsRSEM/RSEM/70476_LV.genes.results", 
+    delim = "\t", escape_double = FALSE, 
+    na = "0", trim_ws = TRUE, show_col_types = FALSE)
+
+### Number of NA features
+NA_RSEM_70476 <- genes_70476_LV %>% 
+  count(expected_count)
+NA_RSEM_70476 <- NA_RSEM_70476[1,]
+NA_RSEM_70476
+
+### Mean and SD of counts
+# Removal of 0.00 rows
+rows <- c(!genes_70476_LV[,5] == 0.00)
+genes_70476_LV <- genes_70476_LV[rows,]
+
+# Mean
+summary(genes_70476_LV[,5])
+# SD
+apply(genes_70476_LV[,5], 2, sd)
+
+### % of mapped reads
+sum(genes_70476_LV[,5]) / Reads_70476 * 100
+
+### TOP 5
+head(genes_70476_LV[order(-genes_70476_LV$expected_count),])
+```
+
+### 70490_LV
+```{r rsem70490_LV}
+### Genes table loading
+genes_70490_LV <- read_delim("~/Documents/RNA-Seq_TFM/HTvsRSEM/RSEM/70490_LV.genes.results", 
+    delim = "\t", escape_double = FALSE, 
+    na = "0", trim_ws = TRUE, show_col_types = FALSE)
+
+### Number of NA features
+NA_RSEM_70490 <- genes_70490_LV %>% 
+  count(expected_count)
+NA_RSEM_70490 <- NA_RSEM_70490[1,]
+NA_RSEM_70490
+
+### Mean and SD of counts
+# Removal of 0.00 rows
+rows <- c(!genes_70490_LV[,5] == 0.00)
+genes_70490_LV <- genes_70490_LV[rows,]
+
+# Mean
+summary(genes_70490_LV[,5])
+# SD
+apply(genes_70490_LV[,5], 2, sd)
+
+### % of mapped reads
+sum(genes_70490_LV[,5]) / Reads_70490 * 100
+
+### TOP 5
+head(genes_70490_LV[order(-genes_70490_LV$expected_count),])
+```
+

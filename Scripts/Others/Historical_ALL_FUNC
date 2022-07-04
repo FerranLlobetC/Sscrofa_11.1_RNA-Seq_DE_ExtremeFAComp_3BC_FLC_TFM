@@ -1,0 +1,46 @@
+########################################################################################################################
+# ALL FOR OBTAINING THE BAM FILES
+# The PRETTY name fo the BAM file. Note that it will be sorted by coordinate.
+# bm = expand("ALIGNED_Reads/{file_name}.bam", file_name=files_to_rename("Pietrain","Liver",
+#        ["USE-MappingCheck"],
+#        "Filename","SAMPLE_NAME")),
+
+########################################################################################################################
+# The INDEX of the BAM file: the BAI file.
+# bi = expand("ALIGNED_Reads/{file_name}.bai", file_name=files_to_rename("Pietrain","Liver",
+#         ["USE-MappingCheck"],
+#         "Filename","SAMPLE_NAME"))
+
+########################################################################################################################
+# ALL TO DO THE NAME CHANGE
+# input:
+#   samR = expand("ALIGNED_Reads/{files}.sam",files=files_to_rename("Pietrain","Liver",
+#       ["USE-MappingCheck"],
+#       "Filename","SAMPLE_NAME")),
+#   toUn_bamR = expand("ALIGNED_Reads/{files}.count.bam",files=files_to_rename("Pietrain","Liver",
+#               ["USE-MappingCheck"],
+#               "Filename","SAMPLE_NAME"))
+
+# ALL TO DO THE MAPPING
+# expand("ALIGNED_Reads/{read_name}Aligned.out.sam",
+# read_name=glob_wildcards("./RAW_Reads/{read_name}_1.fastq.gz").read_name)
+
+########################################################################################################################
+""" Function 'files_to_rename' uses the given .csv equivalencies and renames them after selecting any given number set
+    of conditional selections. """
+def files_to_rename(file_in=None,
+                    restrictions=None,      # 'restrictions' are any combinations of col-condition.
+                    col_out=None):
+    # 'restrictions' must be a list as it will be used to extend the arguments list of the python script 'Selector.py'
+    sel_args = [wkd + "scripts/interchanger.py", file_in]
+    sel_args.extend(restrictions)
+
+    # Selection
+    sel = subprocess.run(sel_args,
+        stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+        check=True)
+
+    # Expansion of the input filenames using the new dataset
+    df = pandas.read_csv(sel.stdout.decode("utf-8")[:-1], sep=";")
+    return df[col_out]
+

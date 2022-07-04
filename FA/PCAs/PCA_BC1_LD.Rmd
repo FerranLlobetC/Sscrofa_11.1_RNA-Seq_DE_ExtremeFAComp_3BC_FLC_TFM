@@ -1,0 +1,52 @@
+---
+title: "FA_per_backcross"
+author: "FLC"
+date: '2022-06-21'
+output: html_document
+---
+```{r libraries}
+library(tidyr)
+library(readxl)
+```
+
+```{r PCA_animals}
+# PCA data of the Animals
+BC1_LD <- read.csv("~/Documents/RNA-Seq_TFM/FA/PCAs/PCA.FA_IND.Landrace.Animales.csv", sep = " ")
+
+# PCA data of the FA
+BC1_LD.FA <- read.csv("~/Documents/RNA-Seq_TFM/FA/PCAs/PCA.FA_IND.Landrace.Caracteres.csv", sep = " ",dec = ",")
+BC1_LD.FA <- as.data.frame(BC1_LD.FA)
+# Elimination of indexes
+# Creation of the notin function
+`%notin%` <- Negate(`%in%`)
+BC1_LD.FA <- BC1_LD.FA[which(BC1_LD.FA[,1] %notin% c("ACL","PI","DBI","UI")),]
+
+BC1_LD.FA$Group <- rep(NA, nrow(BC1_LD.FA))
+colnames(BC1_LD.FA) <- c("UAB", colnames(BC1_LD.FA[2:ncol(BC1_LD)]))
+
+BC1_LD.comb <- rbind(BC1_LD, BC1_LD.FA)
+# Replace of the NA of group with the NA color:
+#BC1_LD.comb$Group <- replace_na(BC1_LD.comb$Group, "#ace1af")
+
+choosing_FA <- BC1_LD.comb[(nrow(BC1_LD)+1):nrow(BC1_LD.comb),]$UAB %in% c("C16:0", "C18:1(n-9)","C18:2(n-6)","C20:4(n-6)","C18:3(n-3)","MUFA","PUFA","SFA")
+
+PCA_BC1_LD <- ggplot(data = BC1_LD.comb[1:nrow(BC1_LD),], 
+       aes(x = PC1, y = PC2, color = Group)) +
+  geom_point() +
+  geom_text_repel(data = BC1_LD.comb[(nrow(BC1_LD)+1):nrow(BC1_LD.comb),], 
+                  aes(x = PC1*10, y = PC2*10), 
+                  label = BC1_LD.FA$UAB, 
+                  color = ifelse(choosing_FA,"#556b2f", "#707070"), 
+                  alpha = ifelse(choosing_FA,1,0.3), 
+                  fontface = ifelse(choosing_FA,"bold","plain"),
+                  size = ifelse(choosing_FA, 5, 4),
+            max.overlaps = 200, min.segment.length = unit(0, 'lines')) + 
+  scale_color_manual(values = c("#2f847c", "#bdb76b", "#ace1af"), breaks = c("H","L", "NA"), na.value = "#ace1af") +
+  scale_x_reverse() +
+  labs(title = "A", x = "PC1 (40.18%)", y = "PC2 (16.33%)") +
+  theme_bw() + theme(text = element_text(family = "ubuntu"), 
+                     legend.position = "none", title = element_text(face = "bold",
+                                                                    family = "ubuntu"))
+ggsave(PCA_BC1_LD, filename = "~/Documents/RNA-Seq_TFM/FA/PCAs/PCA_BC1_LD.jpeg", dpi = "retina", width = 7,
+       height = 7)
+```

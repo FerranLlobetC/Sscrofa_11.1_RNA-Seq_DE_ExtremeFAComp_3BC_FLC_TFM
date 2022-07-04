@@ -1,0 +1,66 @@
+---
+title: "isoforms_venn_BC1_LD.BF"
+author: "FLC"
+date: '2022-06-08'
+output: html_document
+---
+```{r}
+library(ggplot2)
+library(ggVennDiagram)
+```
+
+
+
+```{r setup, include=FALSE}
+# Loading of the results from DESeq2
+DESeq2_BC1_LD.BF <- read.csv("/home/fllobet/Documents/RNA-Seq_TFM/BC1_LD.BF/ISOFORMS/BC1_LD.iF.BF.SF.Results_a_0.05.csv", sep = ";")
+
+# |FC| > 1.5 filtering
+DESeq2_BC1_LD.BF <- DESeq2_BC1_LD.BF[which(DESeq2_BC1_LD.BF[,4] >= log2(1.5) | DESeq2_BC1_LD.BF[,4] <= -log2(1.5)),]
+
+# FDR < 0.05 filtering 
+DESeq2_BC1_LD.BF <- DESeq2_BC1_LD.BF[which(DESeq2_BC1_LD.BF[,8] < 0.05),]
+
+# Loading of the results from EBSeq
+EBSeq_BC1_LD.BF <- read.csv("/home/fllobet/Documents/RNA-Seq_TFM/BC1_LD.BF/ISOFORMS/EBSeq/BC1_LD.iF.BF_EBrb_SIGNIF.Results.csv", sep = ";")
+
+# |FC| > 1.5 filtering
+EBSeq_BC1_LD.BF <-  EBSeq_BC1_LD.BF[which(EBSeq_BC1_LD.BF[,4] >= log2(1.5) | EBSeq_BC1_LD.BF[,4] <= -log2(1.5)),]
+
+# PP DE > 0.95 filtering 
+EBSeq_BC1_LD.BF <- EBSeq_BC1_LD.BF[which(EBSeq_BC1_LD.BF[,6] > 0.95),]
+```
+
+```{r}
+# INSPIRATION: https://stackoverflow.com/questions/70228591/set-the-color-of-categories-in-venn-diagram-in-r
+
+# Creating a list cotaining the lists of ID's
+sets_of_DEI <- list(DESeq2 = DESeq2_BC1_LD.BF$ENSEMLB.ID, EBSeq = EBSeq_BC1_LD.BF$ENSEMBL.ID)
+
+venn <- Venn(sets_of_DEI)
+data <- process_data(venn)
+
+vn <- ggplot() + 
+  # 1. Circles layer
+  geom_sf(aes(fill = count), data = venn_region(data)) +
+  # 2. Labels of the circles layer
+  geom_sf_text(aes(label = name, color = name), data = venn_setlabel(data), fontface = "bold", size = 6, nudge_y = 0.4) +
+  # 3. Numbers inside of the circles
+  geom_sf_text(aes(label = count), data = venn_region(data), size = 10, fontface = "bold", color = "#FFFFFF") +
+  # User-defined fill colors of the circles
+  scale_fill_steps(low = "#bdb76b", high = "#2f847c") +
+  # User-defined color of the labels
+  scale_color_manual(values = c("#b1b26d", "#37867c")) + 
+  
+  # Removla of the 'count' gradinet scale + change of the name pch character
+  guides(color = "none",
+         fill = "none") +
+   # White background
+  theme_void() + 
+  # Setting all the fonts to Ubuntu
+  theme(text = element_text(family = "transsport medium"),
+        legend.key = element_blank()) 
+ 
+saveRDS(vn, "~/Documents/RNA-Seq_TFM/Extra_figures/venn/BC1_LD.BF.rds")
+```
+

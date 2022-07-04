@@ -1,0 +1,133 @@
+---
+title: "Lib_sizes_Histograms"
+author: "FLC"
+date: '2022-06-17'
+output: html_document
+---
+
+```{r libraries}
+library(ggplot2)
+library(ggpubr)
+library(stringr)
+```
+
+```{r data_loading}
+# List of files
+fls <- list.files(path = "~/Documents/RNA-Seq_TFM/Extra_figures/eR_LIB", 
+                  pattern = "*.rds", full.names = TRUE)
+
+############################# LOADING OF ALL THE DF ############################ 
+dfs <- c()
+for (x in fls) {
+  # A different object name per each DF
+  assign(str_remove(str_remove(x, pattern = "[,-z]+/"),".rds"), 
+         # The RDS object to load
+         readRDS(x))
+  # Vector containing all the DF names
+  dfs <- c(dfs, str_remove(str_remove(x, pattern = "[,-z]+/"),".rds"))
+} 
+
+
+############################# HISTOGRAMS CREATION ##############################
+# Counter variable 
+c <- 1 
+# Empty table for the t.test of comparing groups results
+TT_res <- data.frame(matrix(vector(), length(dfs), 5,
+                            dimnames = list(c(), 
+                                            c("Population", "Tissue", 
+                                              "L mean", "H mean","P.Value"))))
+
+for (x in mget(dfs)) {
+  # Name of the histogram to assign it as a R object
+  plt_name <- paste0("h_",dfs[c])
+  
+  # Setting the order of the DF to be L -> H
+  x <- x[order(x$group),]
+  
+  # IF-ELSE to change the sample name according to which group they belong
+  smpls <- ifelse(x[,2] == "L",
+           # Animal of group 'L' 
+           paste0("L0",c(1:(nrow(x)/2))),
+           # Animal fo group 'H' 
+           paste0("H0",c(1:(nrow(x)/2))))
+  
+  # Creation of the histogram 
+  assign(plt_name,
+         ggplot(x[order(x$group),], 
+                # The library size is in millions
+                aes(x= Sample, y = lib.size*1e-6, fill = group)) + 
+           geom_col(col = "#4d5d53", alpha = 0.65) + 
+           # The name of each sub-plot whill be the population - tissue comb. 
+           labs(title = str_replace(dfs[c],"\\.",": "),
+                x = "",
+                y = "") +
+           # An horizontal line for the H group mean
+           geom_hline(yintercept = mean(x[which(x$group=="H"),3])*1e-6, 
+             size = 1, linetype = "solid", col = "#2f847c") +
+           # An horizontal line for the L group mean
+           geom_hline(yintercept = mean(x[which(x$group=="L"),3])*1e-6, 
+             size = 1, linetype = "solid", col = "#bdb76b") +
+           geom_text(aes(x= Sample, 
+                         y = lib.size*1e-6, 
+                         label = round(lib.size*1e-6)),
+                     nudge_y = -2.5, fontface = "bold", color = "#4d5d53", size = 4.5) +
+           
+           # Change of the sample names
+           scale_x_discrete(breaks = rownames(x[order(x$group),]), 
+                   labels = smpls,
+                   limits = rownames(x[order(x$group),])) + 
+scale_fill_manual(name = "Group", values = c("#bdb76b","#2f847c")) + 
+  scale_y_continuous(expand = c(0,0), limits = c(0,max(x$lib.size*1e-6)+5)) + 
+  theme_bw() + 
+  theme(text = element_text(family = "Ubuntu", face = "bold"), 
+        axis.text.x = element_text(face = "bold", size = 10),
+        axis.text.y = element_text(face = "bold", size = 10),
+        legend.position = "none"))
+  
+########################### T.TEST GROUP COMPARISON ############################
+  # T.test
+  TT <- t.test(x$lib.size[which(x$group=="L")], x$lib.size[which(x$group=="H")])
+  
+  # Filling of the data frame
+  text <- str_split_fixed(dfs[c], "\\.", 2)
+  
+  TT_res$Population[c] <- text[1]
+  TT_res$Tissue[c] <- text[2]
+  TT_res$L.mean[c] <- round(mean(x$lib.size[which(x$group=="L")]),2)
+  TT_res$H.mean[c] <- round(mean(x$lib.size[which(x$group=="H")]),2)
+  TT_res$P.Value[c] <- TT$p.value
+  
+  # TESTING IF THE LIBRARY SIZES ARE DIVERGENT
+  if (TT_res$P.Value[c] < 0.05) {
+    print(paste("In", dfs[c],"the library sizes are divergemmt"))
+  } else {
+    print(paste("In", dfs[c],"the library sizes are NOT divergemmt"))
+  }
+  
+  # update of the counter
+  c <- c + 1
+  
+}
+
+############################# COMBINING ALL 9 PLOTS ############################
+plts <- ggarrange(h_BC1_LD.LV, h_BC1_LD.BF, h_BC1_LD.LD,
+          h_BC1_PI.LV, h_BC1_PI.BF, h_BC1_PI.LD,
+          h_BC1_DU.LV, h_BC1_DU.BF, h_BC1_DU.LD, ncol = 3, nrow = 3)
+
+plts <- annotate_figure(plts, 
+                        left = text_grob("Library size (millions)",
+                                         rot = 90, 
+                                         family = "Ubuntu", 
+                                         face = "bold"))
+
+# Save the image into a file
+ggsave("/home/fllobet/Documents/RNA-Seq_TFM/Extra_figures/lib.sizes.jpeg", 
+       plot = plts, dpi = "retina", height = 9.17, width = 18.3, bg = "white")
+
+# Saving the T.Test results table into a CSV file
+write.table(
+  TT_res,
+  file = "~/Documents/RNA-Seq_TFM/Extra_figures/lib.sizes_t.test_results.csv", 
+  col.names = TRUE, row.names = FALSE, sep = ";", dec = ".")
+```
+

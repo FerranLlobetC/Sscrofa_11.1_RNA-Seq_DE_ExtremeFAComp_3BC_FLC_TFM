@@ -1,0 +1,69 @@
+---
+title: "GO_figures_BC1_PI.LD"
+author: "FLC"
+date: '2022-06-03'
+output: html_document
+---
+```{r library_loading}
+library(readxl)
+library(ggplot2)
+library(BiocManager)
+#BiocManager::install("pathview")
+library(stringr)
+
+library(pathview)
+library(forcats)
+#install.packages("forcats")
+library(dichromat)
+# install.packages("dichromat")
+```
+
+```{r ClueGO_output_loading}
+# Loading of the ClueGO output excel of BC1_PI.LD
+GO_BC1_PI.LD <- read_excel("/home/fllobet/Documents/RNA-Seq_TFM/GO/GO_BC1_PI.LD_repGOOD.xls")
+
+# Remove of the [] from the 'Associated genes found' 
+for (x in 1:dim(GO_BC1_PI.LD)[1]) {
+  GO_BC1_PI.LD[x,length(GO_BC1_PI.LD)] <- str_remove(str_remove(GO_BC1_PI.LD[x,length(GO_BC1_PI.LD)],"\\["),"\\]")
+  #GO_BC1_PI.LD[x,length(GO_BC1_PI.LD)]  <- str_replace(GO_BC1_PI.LD[x,length(GO_BC1_PI.LD)], "LOC110259958", "HBA1")
+  #GO_BC1_PI.LD[x,length(GO_BC1_PI.LD)]  <- str_replace(GO_BC1_PI.LD[x,length(GO_BC1_PI.LD)], "LOC100154873", "CA2")
+}
+
+
+# Re-ordering of the rows by corrected P-Value
+GO_BC1_PI.LD <- GO_BC1_PI.LD[order(GO_BC1_PI.LD$`Term PValue Corrected with Benjamini-Hochberg`),]
+```
+
+```{r}
+# Definition of the -log10 P-Value thershold
+log_TH <- 8.5
+
+xlb <- expression(paste("-",log[10],"(","adjusted P-Values",")"))
+GO_BC1_PI.LD_plt <- ggplot(data = GO_BC1_PI.LD[which(-log(GO_BC1_PI.LD$`Term PValue Corrected with Benjamini-Hochberg`) > log_TH),], 
+       mapping = aes(x = -log(`Term PValue Corrected with Benjamini-Hochberg`), 
+                     y = fct_reorder(Term, `Term PValue Corrected with Benjamini-Hochberg`, .desc = TRUE), fill = GOGroups, width = 0.5)) + 
+  geom_col(position = "dodge") +
+  geom_text(label = str_wrap(GO_BC1_PI.LD[which(-log(GO_BC1_PI.LD$`Term PValue Corrected with Benjamini-Hochberg`) > log_TH),]$`Associated Genes Found`, 110), 
+            hjust = -0.02, family = "Ubuntu", fontface = "bold.italic", 
+            colour = c("#000000"),
+            size = 2) +
+  scale_fill_manual(values = c("#2F6284",
+                               "#2f847c",
+                               "#8BE2C9",
+                               "#ACE1AF",
+                               "#DBD76B",
+                               "#789F62",
+                               "#556b2f",
+                               "#81b29a",
+                               "#264653")) + 
+  scale_y_discrete(labels = str_wrap(GO_BC1_PI.LD$Term,40),
+                   breaks = GO_BC1_PI.LD$Term[order(GO_BC1_PI.LD$`Term PValue Corrected with Benjamini-Hochberg`)]) + scale_x_continuous(expand = c(0,0), limits = c(0,40), breaks = seq(0,11,2)) + labs(x = xlb, y = "") + 
+  theme_bw() + theme(legend.position = "none", text = element_text(family = "Ubuntu", face = "bold", colour = "black"), axis.text = element_text(face = "bold", colour = "black", size = 7), axis.title.x = element_text(face = "bold", family = "Ubuntu", hjust = 0.01))
+
+dev.new(width = 10, height = 13)
+GO_BC1_PI.LD_plt
+
+ggsave(GO_BC1_PI.LD_plt, filename = "~/Documents/RNA-Seq_TFM/GO/Plots/BC1_PI.LD.jpeg", dpi = "retina",
+       width = 10, height = 7)
+
+```

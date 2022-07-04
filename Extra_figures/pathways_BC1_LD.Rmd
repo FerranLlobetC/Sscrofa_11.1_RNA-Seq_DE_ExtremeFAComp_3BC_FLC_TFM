@@ -1,0 +1,194 @@
+---
+title: "PPAR_BC1_LD"
+author: "FLC"
+date: '2022-06-19'
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+# Loading of the three files of logCPM
+# LV
+BC1_LD.LV.signif <- read.csv("~/Documents/RNA-Seq_TFM/BC1_LD.LV/edgeR/BC1_LD.LV_eResults_Signif.05.csv", sep = ";")[,c(1,3)]
+colnames(BC1_LD.LV.signif) <- c(colnames(BC1_LD.LV.signif)[1],"LV")
+
+# BF
+BC1_LD.BF.signif <- read.csv("~/Documents/RNA-Seq_TFM/BC1_LD.BF/edgeR/BC1_LD.BF_eResults_Signif.05.csv", sep = ";")[,c(1,3)]
+colnames(BC1_LD.BF.signif) <- c(colnames(BC1_LD.BF.signif)[1],"BF")
+
+# LD
+BC1_LD.LD.signif <- read.csv("~/Documents/RNA-Seq_TFM/BC1_LD.LD/edgeR/BC1_LD.LD_eResults_Signif.05.csv", sep = ";")[,c(1,3)]
+colnames(BC1_LD.LD.signif) <- c(colnames(BC1_LD.LD.signif)[1],"LD")
+
+# In the 3 tissues
+table <- merge(merge(BC1_LD.LV.signif, BC1_LD.BF.signif, by = 1),BC1_LD.LD.signif, by = 1)
+
+BC1_LD.LV.signif <- BC1_LD.LV.signif[-which(BC1_LD.LV.signif[,1] %in% table[,1]),]
+BC1_LD.BF.signif <- BC1_LD.BF.signif[-which(BC1_LD.BF.signif[,1] %in% table[,1]),]
+BC1_LD.LD.signif <- BC1_LD.LD.signif[-which(BC1_LD.LD.signif[,1] %in% table[,1]),]
+
+# In LV and BF
+table2 <- merge(BC1_LD.LV.signif, BC1_LD.BF.signif, by = 1)
+
+BC1_LD.LV.signif <- BC1_LD.LV.signif[-which(BC1_LD.LV.signif[,1] %in% table2[,1]),]
+BC1_LD.BF.signif <- BC1_LD.BF.signif[-which(BC1_LD.BF.signif[,1] %in% table2[,1]),]
+
+# In LV and LD
+table3 <- merge(BC1_LD.LV.signif, BC1_LD.LD.signif, by = 1)
+
+BC1_LD.LV.signif <- BC1_LD.LV.signif[-which(BC1_LD.LV.signif[,1] %in% table3[,1]),]
+BC1_LD.LD.signif <- BC1_LD.LD.signif[-which(BC1_LD.LD.signif[,1] %in% table3[,1]),]
+
+# In BF and LD
+table4 <- merge(BC1_LD.BF.signif, BC1_LD.LD.signif, by = 1)
+
+BC1_LD.BF.signif <- BC1_LD.BF.signif[-which(BC1_LD.BF.signif[,1] %in% table4[,1]),]
+BC1_LD.LD.signif <- BC1_LD.LD.signif[-which(BC1_LD.LD.signif[,1] %in% table4[,1]),]
+
+IDs <- c(table[,1], 
+         table2[,1],
+         table3[,1], 
+         table4[,1],
+         BC1_LD.LV.signif[,1],
+         BC1_LD.BF.signif[,1],
+         BC1_LD.LD.signif[,1])
+
+LV <- c(table[,"LV"],
+        table2[,"LV"],
+        table3[,"LV"],
+        rep(NA, nrow(table4)),
+        BC1_LD.LV.signif[,"LV"],
+        rep(NA, nrow(BC1_LD.BF.signif)),
+        rep(NA, nrow(BC1_LD.LD.signif)))
+
+BF <-  c(table[,"BF"],
+        table2[,"BF"],
+        rep(NA,NROW(table3)),
+        table4[,"BF"],
+        rep(NA, nrow(BC1_LD.LV.signif)),
+        BC1_LD.BF.signif[,"BF"],
+        rep(NA, nrow(BC1_LD.LD.signif)))
+
+LD <-  c(table[,"LD"],
+        rep(NA,nrow(table2)),
+        table3[,"LD"],
+        table4[,"LD"],
+        rep(NA, nrow(BC1_LD.LV.signif)),
+        rep(NA, nrow(BC1_LD.BF.signif)),
+        BC1_LD.LD.signif[,"LD"])
+
+# Combination of all the tissues with the corresponding FC's
+BC1_LD.LV.BF.LD.FC <-data.frame(IDs, LV, BF, LD)
+
+
+mart <- biomaRt::useMart(biomart = "ENSEMBL_MART_ENSEMBL",
+                         dataset = "sscrofa_gene_ensembl",
+                         host = "http://www.ensembl.org")
+
+genes <- unique(getBM(filters = "ensembl_gene_id",
+               attributes = c("ensembl_gene_id","entrezgene_id"),
+               values = BC1_LD.LV.BF.LD.FC[,1], 
+               mart = mart))
+
+genes <- genes[!duplicated(genes[,2]),]
+genes <- na.omit(genes)
+
+BC1_LD.LV.BF.LD.FC <- merge(genes, BC1_LD.LV.BF.LD.FC, by = 1)
+BC1_LD.LV.BF.LD.FC <- BC1_LD.LV.BF.LD.FC[2:ncol(BC1_LD.LV.BF.LD.FC)]
+rownames(BC1_LD.LV.BF.LD.FC) <- BC1_LD.LV.BF.LD.FC[,1]
+# 
+# # LV
+# BC1_LD.LV.BF.LD.FC[is.na(BC1_LD.LV.BF.LD.FC[,2]),2] <- 0 
+# # BF
+# BC1_LD.LV.BF.LD.FC[is.na(BC1_LD.LV.BF.LD.FC[,3]),3] <- 0 
+# # LD
+# BC1_LD.LV.BF.LD.FC[is.na(BC1_LD.LV.BF.LD.FC[,4]),4] <- 0 
+BC1_LD.LV.BF.LD.FC[,1] <- NULL
+
+# PPAR Signaling pathway
+pathview(gene.data = BC1_LD.LV.BF.LD.FC,
+         pathway.id = "ssc03320",
+         species = "ssc",
+         out.suffix = "BC1_LD",
+         gene.idtype = "entrez",
+         kegg.native = TRUE,
+         key.align = "x",
+         multi.state  = TRUE,
+         same.layer = TRUE,
+         match.data = FALSE, low = "#bdb76b", mid = "#ace1af", high = "#2f847c",
+         map.null = FALSE)
+
+
+# AA
+pathview(gene.data = BC1_LD.LV.BF.LD.FC,
+         pathway.id = "00590",
+         species = "ssc",
+         out.suffix = "BC1_LD",
+         gene.idtype = "entrez",
+         kegg.native = TRUE,
+         key.align = "x",
+         multi.state  = TRUE,
+         same.layer = TRUE,
+         match.data = FALSE, low = "#bdb76b", mid = "#ace1af", high = "#2f847c",
+         map.null = FALSE)
+
+# AA
+pathview(gene.data = BC1_LD.LV.BF.LD.FC,
+         pathway.id = "00591",
+         species = "ssc",
+         out.suffix = "BC1_LD",
+         gene.idtype = "entrez",
+         kegg.native = TRUE,
+         key.align = "x",
+         multi.state  = TRUE,
+         same.layer = TRUE,
+         match.data = FALSE, low = "#bdb76b", mid = "#ace1af", high = "#2f847c",
+         map.null = FALSE)
+
+
+pathview(gene.data = BC1_LD.LV.BF.LD.FC,
+         pathway.id = "00592",
+         species = "ssc",
+         out.suffix = "BC1_LD",
+         gene.idtype = "entrez",
+         kegg.native = TRUE,
+         key.align = "x",
+         multi.state  = TRUE,
+         same.layer = TRUE,
+         match.data = FALSE, low = "#bdb76b", mid = "#ace1af", high = "#2f847c",
+         map.null = FALSE)
+
+
+pathview(gene.data = BC1_LD.LV.BF.LD.FC,
+         pathway.id = "01040",
+         species = "ssc",
+         out.suffix = "BC1_LD",
+         gene.idtype = "entrez",
+         kegg.native = TRUE,
+         key.align = "x",
+         multi.state  = TRUE,
+         same.layer = TRUE,
+         match.data = FALSE, low = "#bdb76b", mid = "#ace1af", high = "#2f847c",
+         map.null = FALSE)
+
+
+pathview(gene.data = BC1_LD.LV.BF.LD.FC,
+         pathway.id = "01212",
+         species = "ssc",
+         out.suffix = "BC1_LD",
+         gene.idtype = "entrez",
+         kegg.native = TRUE,
+         key.align = "x",
+         multi.state  = TRUE,
+         same.layer = TRUE,
+         match.data = FALSE, low = "#bdb76b", mid = "#ace1af", high = "#2f847c",
+         map.null = FALSE)
+
+# pathview(gene.data = genes,
+#          pathway.id = "03320",
+#          species = "ssc",
+#          out.suffix = "BC1_LD",
+#          gene.idtype = "entrez",
+#          kegg.native = TRUE)
+```
+

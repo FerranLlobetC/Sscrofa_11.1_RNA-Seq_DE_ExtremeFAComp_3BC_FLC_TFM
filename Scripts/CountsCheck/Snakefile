@@ -1,0 +1,230 @@
+# Modules import
+import os
+import subprocess
+import pandas
+
+
+""" FUNCTIONS & PARAMETERS """
+########################################################################################################################
+# Parameters:
+wkd = "/home/fllobet/RNA-Seq/RNA-Seq_11.1_FLC/"
+workdir: wkd
+
+# Functions:
+""" Function 'n_cores' obtains the number of cores of a given machine """
+def n_cores():
+    grp = subprocess.run(["grep", "^cpu\\scores", "/proc/cpuinfo"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+        check=True)
+    uq = subprocess.run(["uniq"],input=grp.stdout,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+        check=True)
+    return int(
+        subprocess.run(["awk", "{print $4}"],input=uq.stdout,stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,check=True).stdout.decode("utf-8"))
+
+
+""" Function 'files_to_rename' uses the given .csv equivalencies and renames them after selecting any given number set
+    of conditional selections. """
+def files_to_rename(pop, tissue, # 'pop' and 'tissue' must be given to the function
+                    others,      # 'others' are any combinations of col-condition.
+                    col_out):
+
+    # 'others' must be a list as it will be used to extend the arguments list of the python script 'Selector.py'
+    sel_args = ["./Selector.py", pop, tissue]
+    sel_args.extend(others)
+
+    # Selection
+    sel = subprocess.run(sel_args,
+        stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+        check=True)
+
+    # Expansion of the input filenames using the new dataset
+    df = pandas.read_csv(sel.stdout.decode("utf-8")[:-1], sep=";")
+    return df[col_out]
+
+
+""" Function 'numb_files' will return the number of files (SAM, BAM...) in the experiment. 
+It is used downstream to assign a number of threads equal to the number of files to process for those programs that are
+badly design and use 1 single core per file """
+def n_files(pop, tissue, others, col_out):
+
+    return len(files_to_rename(pop, tissue, others, col_out))
+
+
+""" RULES """
+########################################################################################################################
+# Name of th files to download:
+rule all:
+    input:
+        sng_ct = expand("COUNTS/{file_name}.csv", file_name=files_to_rename("Pietrain","Liver",
+        ["USE-MappingCheck"],
+        "SAMPLE_NAME"))
+
+rule genome_download:
+    output:
+        ref = "Sus_scrofa.Sscrofa11.1.dna.toplevel.fa.gz"
+    run:
+        # If the 'REF_Genome' directory does not exist:
+        if not os.path.isdir("./REF_Genome"):
+            shell("mkdir REF_Genome") # it is created.
+
+        # Download of the reference genome.
+        shell("cd ./REF_Genome")
+        shell("wget http://ftp.ensembl.org/pub/release-105/fasta/sus_scrofa/dna_index/{output.ref}")
+
+rule annot_download:
+    output:
+        annot = "REF_Genome/Sus_scrofa.Sscrofa11.1.105.gtf.gz"
+    run:
+        # Download of the reference annotations.
+        shell("cd ./REF_Genome")
+        shell("wget http://ftp.ensembl.org/pub/release-105/gtf/sus_scrofa/Sus_scrofa.Sscrofa11.1.105.gtf.gz -O {output.annot}")
+
+rule decompressions:
+    input:
+        ref = "REF_Genome/Sus_scrofa.{genome}.dna.toplevel.fa.gz",  # Compressed genome.
+        annot = "REF_Genome/Sus_scrofa.{genome}.105.gtf.gz"  # Compressed annotations.
+    output:
+        s11 = "REF_Genome/{genome}.fa",  # De-compressed genome
+        a11 = "REF_Genome/{genome}.gtf"  # De-compressed annotations.
+    run:
+        # Decompression
+        shell("gzip -dk {input.ref}")    # Genome
+        shell("gzip -dk {input.annot}")  # Gen annotations,
+        # Name change
+        shell("mv ./REF_Genome/Sus_scrofa.{wildcards.genome}.dna.toplevel.fa {output.s11}")
+        shell("mv ./REF_Genome/Sus_scrofa.{wildcards.genome}.105.gtf {output.a11}")
+
+        # Removal of the compressed files
+        shell("rm  ./REF_Genome/*.gz")
+
+
+""" The rule 'genome_index' will create an INDEX of the genome given the existence of the genomic sequence. Reference to 
+STAR Manual to understand what does each argument do. """
+
+rule genome_index:
+    input:
+        s11 = "REF_Genome/Sscrofa11.1.fa",  # Genomic sequence.
+        a11 = "REF_Genome/Sscrofa11.1.gtf"  # Annotations.
+
+    params:
+        outdir = wkd + "INDEXED_Genome",  # The 'outdir' parameter is the directory where the indexed genome is stored.
+        overHang = 75                     # I have looked and the length of my reads is 76 nt.
+    threads: n_cores()   # Obtaining the number of cores of the machine ('Inma').
+
+    conda:
+        "align.yaml"  # The 'align' conda environment will be used as it contains 'STAR' among others.
+    shell:
+        # Execution of the INDEXING:
+        "STAR --runThreadN {threads} --runMode genomeGenerate --genomeDir {params.outdir} \
+        --genomeFastaFiles {input.s11} --sjdbGTFfile {input.a11} --sjdbOverhang {params.overHang}"
+
+
+""" The rule 'mapping' will map (align) any read-pair present in 'RAW_Reads' on to the pig genome 'sScrofa 11.1' using 
+STAR. Most of the parameters values wil be the same that CSN used to do the work of Najmej. I will state if otherwise.
+"""
+rule mapping:
+    input:
+        # r1 is the left (5-3) read and r2 the right (3-5) read or vice-versa.
+        r1 = "RAW_Reads/{read_name}_1.fastq.gz",
+        r2 = "RAW_Reads/{read_name}_2.fastq.gz"
+        # A fancy feature of STAR is that it can work with the compressed reads.
+    output:
+        sm = "ALIGNED_Reads/{read_name}Aligned.out.sam"
+
+    params:
+        outdir = wkd + "ALIGNED_Reads/",
+        genomedir = wkd + "INDEXED_Genome"
+    threads: n_cores()
+
+    conda:
+        "align.yaml"  # The 'align' conda environment will be used as it contains 'STAR' among others.
+    shell:
+        # The 'script' '2_reads_map.sh' is just the command to launch the STAR mapping
+        "./2_reads_map.sh {threads} {params.genomedir} {input.r1} {input.r2} {output.sm}"
+
+
+""" The rule 'after_mapping' will do the tidying steps required after the mapping. These steps consist of:
+    - Removal of the files:
+        - *.Log.out 
+        - *.Log.progress.out
+        - *SJ.out.tab
+    - Renaming of the SAM and BAM files according to the equivalencies given by the '.csv' selecting names to use. """
+
+rule after_mapping:
+    input:
+        sm = expand("ALIGNED_Reads/{read_name}Aligned.out.sam",
+              read_name=glob_wildcards("./RAW_Reads/{read_name}_1.fastq.gz").read_name)
+    output:
+        samR = expand("ALIGNED_Reads/{file}.sam", file=files_to_rename("Pietrain","Liver",
+            ["USE-MappingCheck"],
+            "SAMPLE_NAME")),
+        # Counts file
+        bamCR = expand("ALIGNED_Reads/{file}.count.bam", file=files_to_rename("Pietrain", "Liver",
+             ["USE-MappingCheck"],
+            "SAMPLE_NAME"))
+
+    params:
+         c_in   = "Filename",
+         c_out  = "SAMPLE_NAME",
+         outdir = wkd + "ALIGNED_Reads/"
+
+    run:
+         # Names replacing
+         subprocess.run(["./Replacer.py", str({params.c_in})[2:-2], str({params.c_out})[2:-2]], check=True)
+
+         # Removals
+         shell("rm " + str({params.outdir})[2:-2] + "*Log.out")
+         shell("rm " + str({params.outdir})[2:-2] + "*Log.progress.out")
+         shell("rm " + str({params.outdir})[2:-2] + "*SJ.out.tab")
+
+
+""" The rule 'sam_to_bam will' convert correctly named SAM files into BAM files sorted by coordinate.
+(This could be done directly using 'STAR' but being this my first real alignment I prefer to go step by step and also I
+can learn how 'samtools' works which is also a positive point).
+    - 'samtools' is installed in the conda environment 'align.yaml' VERSION 1.13 """
+# Modules import
+import os
+import subprocess
+import pandas
+
+rule sam_to_bam:
+    input:
+        sm = "ALIGNED_Reads/{file_name}.sam" # The PRETTY name of the SAM file.
+    output:
+        # The PRETTY name fo the BAM file. Note that it will be sorted by coordinate.
+        bm = "ALIGNED_Reads/{file_name}.bam"
+        # The INDEX of the BAM file: the BAI file.
+        # bi = "ALIGNED_Reads/{file_name}.bai"
+
+    threads: n_cores()
+
+    conda:
+        "align.yaml"  # The 'align' conda environment will be used as it contains 'STAR' among others.
+    shell:
+        # Note the reversed order.
+        "./sam_bam_index.sh {input.sm} {output.bm} {threads}" # {output.bi}"
+
+
+""" The rule 'counts' will use HTSeq to obtain the counts matrix from the input BAM file. 
+It requires the GTF annotations and the BAM file to generate a '.tsv' file which returns how many times a features 
+was sequenced (this variable is what is used as a measure of gene expression in RNA-Seq). HTSeq  
+is both a Python module and a standalone Python-based program (htseq-count). In this case I will use it as a standalone
+program. It is programmed in a manner that allows just 1 core per file hence the number of threads must be decalred 
+using 'n_files'. 
+    - 'htseq' is installed in the conda environment 'align.yaml' VERSION 1.99.2 """
+
+rule counts:
+    input:
+        bmS = "ALIGNED_Reads/{file_name}.bam"  # Input sorted BAM file.
+    output:
+        sng_ct = "COUNTS/{file_name}.csv"  # Output .csv COUNTS matrix.
+
+    params:
+        gtf = "REF_Genome/Sscrofa11.1.gtf"  # Features (GTF) file.
+    threads: n_files("Pietrain","Liver", ["USE-MappingCheck"], "SAMPLE_NAME")  # 1 CPU per file.
+
+
+    conda:
+        "align.yaml"
+    shell:
+        "htseq-count -f bam -r pos -m intersection-strict -c {output.sng_ct} {input.bmS} {params.gtf}"

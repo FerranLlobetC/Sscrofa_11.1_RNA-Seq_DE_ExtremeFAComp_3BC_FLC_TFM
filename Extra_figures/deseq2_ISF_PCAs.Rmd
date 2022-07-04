@@ -1,0 +1,94 @@
+---
+title: "Lib_sizes_Histograms"
+author: "FLC"
+date: '2022-06-17'
+output: html_document
+---
+
+```{r libraries}
+library(ggplot2)
+library(ggpubr)
+library(stringr)
+```
+
+```{r data_loading}
+# List of files
+fls <- list.files(path = "~/Documents/RNA-Seq_TFM/Extra_figures/dq2_ISF_PCA/", 
+                  pattern = "*.rds", full.names = TRUE)
+
+############################# LOADING OF ALL THE DF ############################ 
+dfs <- c()
+for (x in fls) {
+  # A different object name per each DF
+  assign(str_remove(str_remove(x, pattern = "[,-z]+/"),".rds"), 
+         # The RDS object to load
+         readRDS(x))
+  # Vector containing all the DF names
+  dfs <- c(dfs, str_remove(str_remove(x, pattern = "[,-z]+/"),".rds"))
+} 
+
+
+############################### PCA's CREATION #################################
+# Counter variable 
+c <- 1 
+
+for (x in mget(dfs)) {
+  # Name of the histogram to assign it as a R object
+  plt_name <- paste0("pca_",dfs[c])
+  
+  # Setting the order of the DF to be L -> H
+  x <- x[order(x$Group),]
+  
+  # Calculation of the percent of variance of the 2 first PC for the axis labs
+  percentVar <- round(100 * attr(x, "percentVar"))
+  
+  # Removal of the group and sex artifact columns
+  if ("group" %in% colnames(x)) {
+    x <- x[,-grep("group", colnames(x))]
+  } 
+  if ("Sex" %in% colnames(x)) {
+    x <- x[-grep("M", x$Sex),]
+    x <- x[,-grep("Sex", colnames(x))]
+  }
+  
+  # IF-ELSE to change the sample name according to which group they belong
+  smpls <- ifelse(x[,3] == "L",
+           # Animal of group 'L' 
+           paste0("L0",c(1:(nrow(x)/2))),
+           # Animal fo group 'H' 
+           paste0("H0",c(1:(nrow(x)/2))))
+  
+  
+  # Creation of the PCA x
+  assign(plt_name, ggplot(x[order(x$Group),], aes(x= PC1, 
+                                                  y = PC2, 
+                                                  color = Group)) +
+           geom_point(size = 3) + geom_text_repel(aes(x = PC1,
+                                                      y = PC2),
+                                                      # Use of 'smpls' as label
+                                                      label = smpls) +
+           labs(title = str_replace(dfs[c],"\\.",": "),
+                x = paste0("PC1: ", percentVar[1], "% variance"),
+                y = paste0("PC2: ", percentVar[2], "% variance")) + 
+           scale_color_manual(values = c("#2f847c", "#bdb76b")) + theme_bw() + 
+           theme(legend.position = "none", 
+                 text = element_text(family = "transport medium", 
+                                     face = "bold")))
+  
+  # update of the counter
+  c <- c + 1
+  
+}
+
+############################# COMBINING ALL 9 PLOTS ############################
+plts <- ggarrange(pca_BC1_LD.LV, pca_BC1_LD.BF, pca_BC1_LD.LD,
+          pca_BC1_PI.LV, pca_BC1_PI.BF, pca_BC1_PI.LD,
+          pca_BC1_DU.LV, pca_BC1_DU.BF, pca_BC1_DU.LD, ncol = 3, nrow = 3)
+
+# Save the image into a file
+ggsave("/home/fllobet/Documents/RNA-Seq_TFM/Extra_figures/PCAs_ISF.jpeg", 
+       plot = plts, dpi = "retina", height = 9.17, width = 16.4, bg = "white")
+
+```
+
+

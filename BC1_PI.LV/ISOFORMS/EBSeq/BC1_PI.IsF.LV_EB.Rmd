@@ -1,0 +1,269 @@
+---
+title: "BC1_PI.LV.IsF.EB.Rmd"
+author: "FLC"
+date: '2022-05-15'
+output: html_document
+---
+```{r}
+library(stringr)
+#BiocManager::install("EBSeq")
+library(EBSeq)
+```
+
+
+# Lodaing *expected counts* from RSEM
+```{r rsem_Counts_LOADING}
+RSEM_exCnt.BC1_PI.iF.LV <- read.delim("/home/fllobet/Documents/RNA-Seq_TFM/BC1_PI.LV/RSEM_counts_BC1.PI.LV.matrix", sep = "\t", row.names = 1)
+# Modification of the colnames:
+colnames(RSEM_exCnt.BC1_PI.iF.LV) <- str_replace(str_replace(colnames(RSEM_exCnt.BC1_PI.iF.LV),".isoforms.results",""),"COUNTS.","X")
+View(RSEM_exCnt.BC1_PI.iF.LV)
+```
+
+# Metadata loading
+```{r metadata_LOADING}
+### METADATA of ALL SAMPLES
+Animals <- read.delim("/home/fllobet/Documents/RNA-Seq_TFM/Animals.csv", sep = ";", stringsAsFactors = FALSE)
+
+## Cleaning of the metadata
+# Relocation of the Animal number as row names 
+row.names(Animals) <- paste0("X",Animals[,3])
+# The 'X' is necessary because R cannot use column names staring wiht a number.
+
+### Subset of the METADATA from the BC1_PI liver samples:
+
+# BC1_PI
+Animals.BC1_PI <- Animals[which(Animals[,2] == "BC1_PI"),]
+# Liver
+Animals.BC1_PI.iF.LV <- Animals.BC1_PI[which(Animals.BC1_PI[,4] == "Liver"),]
+
+# Ensure that both files follow the same order
+Animals.BC1_PI.iF.LV <- Animals.BC1_PI.iF.LV[order(Animals.BC1_PI.iF.LV[,1]),]
+RSEM_exCnt.BC1_PI.iF.LV <- RSEM_exCnt.BC1_PI.iF.LV[,rownames(Animals.BC1_PI.iF.LV)]
+
+################################################################################
+# Removal of unutilized objects
+rm(Animals)
+```
+The group vector will be `r Animals.BC1_PI.iF.LV$Group`
+
+# Isoform and gene names
+```{r isoform_names}
+iso_names <- rownames(RSEM_exCnt.BC1_PI.iF.LV)
+```
+
+```{r gene_names}
+# The first 'isofroms.results' file of the data will be used to retrieve the gene names
+file <- paste0("/home/fllobet/Documents/RNA-Seq_TFM/COUNTS/Isoforms/PK06/",str_replace(colnames(RSEM_exCnt.BC1_PI.iF.LV)[1],"X",""),".isoforms.results")
+gene_names <- read.delim(file)$gene_id
+```
+
+# Normalization: Library Size Factor
+```{r library_size}
+libSzF.BC1_PI.iF.LV <- MedianNorm(RSEM_exCnt.BC1_PI.iF.LV)
+```
+
+# N_{g} vector
+EBSeq fits diferent prior parameters for diferent uncertainty groups (defned as Ig groups). The default setting to defne the uncertainty groups consists of using the number of isoforms the host gene contains (Ng ) for each isoform.
+```{r Ng_vector}
+Ng_BC1_PI.iF.LV <- GetNg(IsoformName = iso_names, GeneName = gene_names)
+# The ACTUAL Ng vector that will be feed to the EBSeq model fitting
+NgV_BC1.Pi.iF.LV <- Ng_BC1_PI.iF.LV$IsoformNgTrun
+
+```
+
+# Differential expression analysis
+1 Fitting the model 
+```{r EBTestT}
+# Condition vector refactoring
+groups <- relevel(as.factor(Animals.BC1_PI.iF.LV$Group), ref = "L")
+
+# Repeating the fitting but using n = 10 iterations because the 3 above 
+# parameters did not stabilize changing les e-3 = 0.01:
+# Model fiting
+EB.BC1_PI.iF.LV <- EBTest(Data=as.matrix(RSEM_exCnt.BC1_PI.iF.LV), 
+                          NgVector=NgV_BC1.Pi.iF.LV, 
+                          Conditions=groups,
+                          sizeFactors=as.vector(libSzF.BC1_PI.iF.LV), 
+                          maxround=15)
+
+EB.BC1_PI.iF.LV$Alpha
+EB.BC1_PI.iF.LV$Beta
+EB.BC1_PI.iF.LV$P
+```
+
+2 Results (with a FDR cutoff of .05)
+```{r EBResults}
+# Applying the robust method
+robust.EBRes.BC1_PI.iF.LV <- GetDEResults(EB.BC1_PI.iF.LV, FDR = 0.05, Method = "robust")
+
+# Aoplying the classic method
+classic.EBRes.BC1_PI.iF.LV <- GetDEResults(EB.BC1_PI.iF.LV, FDR = 0.05, Method = "classic")
+
+# Nº of DE Isoforoms 
+# Robust method
+length(robust.EBRes.BC1_PI.iF.LV$DEfound)
+# Classic method
+length(classic.EBRes.BC1_PI.iF.LV$DEfound)
+```
+# Calculation of Fold-Changes
+```{r FC}
+FC.BC1_PI.iF.LV <- PostFC(EB.BC1_PI.iF.LV)
+FC.BC1_PI.iF.LV <- FC.BC1_PI.iF.LV$RealFC
+# TO GET NUMBER OF FILTERED ISOFOROMS
+length(FC.BC1_PI.iF.LV)
+length(classic.EBRes.BC1_PI.iF.LV$PPMat)
+classic.EBRes.BC1_PI.iF.LV$DEfound
+
+# Generation of a results matrix of the classic method:
+classicalFC.PP_matrix <- cbind(names(FC.BC1_PI.iF.LV), names(FC.BC1_PI.iF.LV), FC.BC1_PI.iF.LV, -log2(FC.BC1_PI.iF.LV), classic.EBRes.BC1_PI.iF.LV$PPMat[which(rownames(classic.EBRes.BC1_PI.iF.LV$PPMat) %in% names(FC.BC1_PI.iF.LV)),])
+classicalFC.PP_matrix[,1:2] <- str_split_fixed(rownames(classicalFC.PP_matrix),"_", n = 2) 
+colnames(classicalFC.PP_matrix) <- c("ENSEMBL ID", "Isoform name", "FC", "log2FC", "PP EE", "PP DE")
+
+write.table(classicalFC.PP_matrix, "/home/fllobet/Documents/RNA-Seq_TFM/BC1_PI.LV/ISOFORMS/EBSeq/BC1_PI.iF.LV_EBcl.Results.csv", sep = ";")
+write.table(classicalFC.PP_matrix[which(rownames(classicalFC.PP_matrix) %in% classic.EBRes.BC1_PI.iF.LV$DEfound),], "/home/fllobet/Documents/RNA-Seq_TFM/BC1_PI.LV/ISOFORMS/EBSeq/BC1_PI.iF.LV_EBcl.Results.csv", sep = ";")
+
+# Generation of a results matrix of the robust method:
+robustFC.PP_matrix <- cbind(names(FC.BC1_PI.iF.LV), names(FC.BC1_PI.iF.LV), FC.BC1_PI.iF.LV, -log2(FC.BC1_PI.iF.LV), robust.EBRes.BC1_PI.iF.LV$PPMat[which(rownames(robust.EBRes.BC1_PI.iF.LV$PPMat) %in% names(FC.BC1_PI.iF.LV)),])
+robustFC.PP_matrix[,1:2] <- str_split_fixed(rownames(robustFC.PP_matrix),"_", n = 2) 
+colnames(robustFC.PP_matrix) <- c("ENSEMBL ID", "Isoform name", "FC", "log2FC", "PP EE", "PP DE")
+write.table(robustFC.PP_matrix, "/home/fllobet/Documents/RNA-Seq_TFM/BC1_PI.LV/ISOFORMS/EBSeq/BC1_PI.iF.LV_EBrb.Results.csv", sep = ";")
+```
+
+# Calculation of percentage of filtered features
+```{r filtered_features}
+(dim(RSEM_exCnt.BC1_PI.iF.LV)[1] - dim(EB.BC1_PI.iF.LV$PPMat)[1]) / dim(RSEM_exCnt.BC1_PI.iF.LV)[1]
+
+47793 / 63041
+```
+
+# Up & Down regulation + Filtering by FoldChange
+
+## ABS FC > 0
+```{r abs_0}
+# Only from the significant features
+robustFC_signif <- robustFC.PP_matrix[which(rownames(robustFC.PP_matrix) %in% robust.EBRes.BC1_PI.iF.LV$DEfound),]
+
+# Total N of DE isoforms
+nrow(robustFC_signif)
+
+# UpRegulated: FC > 0
+nrow(robustFC_signif[which(as.numeric(robustFC_signif[,4]) > 0),])
+
+# DownRegulated: FC < 0
+nrow(robustFC_signif[which(as.numeric(robustFC_signif[,4]) < 0),])
+```
+
+
+## ABS FC > 1.2
+```{r abs_1.2}
+# log2 of 1.2
+lg1.2 <- log2(1.2)
+
+# Creation of a new object
+
+# With FC > and < 1.2
+robustFC.PP_matrix.12 <- 
+  robustFC_signif[which(as.numeric(robustFC_signif[,4]) > lg1.2 |  
+                          as.numeric(robustFC_signif[,4]) < -lg1.2),]
+
+
+
+# Number of DE isoforms
+nrow(robustFC.PP_matrix.12)
+
+# UpRegulated: FC > 0
+nrow(robustFC.PP_matrix.12[which(as.numeric(robustFC.PP_matrix.12[,4]) > 0),])
+
+# DownRegulated: FC < 0
+nrow(robustFC.PP_matrix.12[which(as.numeric(robustFC.PP_matrix.12[,4]) < 0),])
+```
+
+## ABS FC > 1.5
+```{r abs_1.5}
+# log2 of 1.5
+lg1.5 <- log2(1.5)
+
+# Creation of a new object
+
+# With FC > and < 1.5
+robustFC.PP_matrix.15 <- 
+  robustFC_signif[which(as.numeric(robustFC_signif[,4]) > lg1.5 |  
+                          as.numeric(robustFC_signif[,4]) < -lg1.5),]
+
+
+
+# Number of DE isoforms
+nrow(robustFC.PP_matrix.15)
+
+# UpRegulated: FC > 0
+nrow(robustFC.PP_matrix.15[which(as.numeric(robustFC.PP_matrix.15[,4]) > 0),])
+
+# DownRegulated: FC < 0
+nrow(robustFC.PP_matrix.15[which(as.numeric(robustFC.PP_matrix.15[,4]) < 0),])
+```
+# Comparison with DESeq2 results
+```{r comp_DESeq2}
+BC1_PI.iF.LV_Dq2 <- read.csv("/home/fllobet/Documents/RNA-Seq_TFM/BC1_PI.LV/ISOFORMS/BC1_PI.iF.LV.SF.Results_a_0.05.csv", sep = ";")
+
+# Selection of just the significant faetures
+BC1_PI.iF.LV_Dq2 <- BC1_PI.iF.LV_Dq2[which(BC1_PI.iF.LV_Dq2[,7] < 0.05),]
+
+# Row names of both objects become the ENSMEBL ID
+rownames(BC1_PI.iF.LV_Dq2) <- BC1_PI.iF.LV_Dq2$ENSEMLB.ID
+rownames(robustFC_signif) <- robustFC_signif[,1]
+# 'BUSCARV' between the 2 lists
+Common <- merge(robustFC_signif, BC1_PI.iF.LV_Dq2, by = 0)
+
+# Number of features:
+## in EBSeq
+nrow(robustFC_signif)
+
+## in DESeq2
+nrow(BC1_PI.iF.LV_Dq2)
+
+# Number of common features between the 2 lists
+nrow(Common)
+# Percentage in common in EBSeq
+nrow(Common)/nrow(robustFC_signif)
+
+# Percentage in commin in DESeq2
+nrow(Common)/nrow(BC1_PI.iF.LV_Dq2)
+
+# Addition of a new column into the output CSV of the significant features
+L <- dim(robustFC_signif)[2]
+robustFC_signif <- as.data.frame(robustFC_signif)
+for (i in 1:nrow(robustFC_signif)) {
+  robustFC_signif[i,L+1] <- ifelse(rownames(robustFC_signif[i,]) %in% Common[,1], "in DESeq2", NA)
+
+  }
+
+# Update of the column names
+colnames(robustFC_signif) <- c(colnames(robustFC_signif)[-ncol(robustFC_signif)], "in DESeq2?")
+
+write.table(robustFC_signif, "BC1_PI.iF_LV_EBrb_SIGNIF.Results.csv", row.names = FALSE, sep = ";")
+```
+
+# Saving the counts
+Like I used to do at gene-level in DESeq2 and edgeR now I will 
+```{r}
+# Ordering the columns of the RSEM-estimated-counts matrix in L ... H fashion
+signifRSEMCnts <- as.data.frame(RSEM_exCnt.BC1_PI.iF.LV[,
+                                          colnames(RSEM_exCnt.BC1_PI.iF.LV[
+                                            order(Animals.BC1_PI.iF.LV$Group, 
+                                                  decreasing = TRUE)])])
+# Division of the rownames into ID + transcript
+signifRSEMCnts <- cbind(rownames(signifRSEMCnts), rownames(signifRSEMCnts), signifRSEMCnts)
+signifRSEMCnts[,1:2] <- str_split_fixed(rownames(signifRSEMCnts),"_",n = 2)
+#rownames(signifRSEMCnts) <- signifRSEMCnts[,1]
+
+# Selection of only the significant features (PP DE > 0.95)
+rw <- rownames(robustFC.PP_matrix[which(as.numeric(robustFC.PP_matrix[,6])>0.95),])
+signifRSEMCnts <- signifRSEMCnts[rw,]
+
+
+# Saving the counts matrix into a CSV file 
+colnames(signifRSEMCnts) <- c("ENSEMBL ID", "Transcript", str_replace(colnames(signifRSEMCnts[3:ncol(signifRSEMCnts)]),"X",""))
+write.table(signifRSEMCnts, "/home/fllobet/Documents/RNA-Seq_TFM/BC1_PI.LV/ISOFORMS/EBSeq/BC1_PI.iF.LV_EBrb_COUNTS.csv", sep = ";", 
+            row.names = F)
+```
+

@@ -1,0 +1,129 @@
+---
+title: "FA_per_backcross"
+author: "FLC"
+date: '2022-06-21'
+output: html_document
+---
+```{r libraries}
+library(readxl)
+```
+
+
+```{r FA_dataset_loading}
+# FA Dataset
+FA_3BC <- read_excel("~/Documents/RNA-Seq_TFM/FA/3BCs_FAs_LD.xlsx", col_types = c(rep("guess",6),rep("numeric",50)), na = "NA")
+
+# Animals used in this RNA-Seq experiment metadata
+Animals <- read.csv("~/Documents/RNA-Seq_TFM/Animals.csv", sep = ";")
+```
+# Generation of a sub-dataset for the BC1_LD anaimals
+```{r BC1_LD}
+# List of BC1_LD animals, because the set of animals was different in each 
+# 3 separte lists are required
+# LV
+smpls_BC1_LD.LV <- Animals[Animals[,2] == "BC1_LD",]
+smpls_BC1_LD.LV <- smpls_BC1_LD.LV[smpls_BC1_LD.LV[,4] == "Liver",]
+FA_BC1_LD.LV <- FA_3BC[which(as.character(FA_3BC$Animal) %in% as.character(smpls_BC1_LD.LV$Animal)),]
+
+BC1_LD.LV.table <- FA_mean_table(FA_BC1_LD.LV)
+
+# BF
+smpls_BC1_LD.BF <- Animals[Animals[,2] == "BC1_LD",]
+smpls_BC1_LD.BF <- smpls_BC1_LD.BF[smpls_BC1_LD.BF[,4] == "Backfat",]
+smpls_BC1_LD.BF <- smpls_BC1_LD.BF[smpls_BC1_LD.BF[,9] == "Corominas",][1]
+FA_BC1_LD.BF <- FA_3BC[which(as.character(FA_3BC$Animal) %in% as.character(smpls_BC1_LD.BF$Animal)),]
+
+BC1_LD.BF.table <- FA_mean_table(FA_BC1_LD.BF)
+
+# LD
+smpls_BC1_LD.LD <- Animals[Animals[,2] == "BC1_LD",]
+smpls_BC1_LD.LD <- smpls_BC1_LD.LD[smpls_BC1_LD.LD[,4] == "Longissimusdorsi",]
+FA_BC1_LD.LD <- FA_3BC[which(as.character(FA_3BC$Animal) %in% as.character(smpls_BC1_LD.LD$Animal)),]
+
+BC1_LD.LD.table <- FA_mean_table(FA_BC1_LD.LD)
+# Writing into CSV
+write.table(BC1_LD.LD.table[2:22,], file = "~/Documents/RNA-Seq_TFM/FA/mean_sign_BC1_LD.LD.csv", sep = ";", row.names = FALSE, col.names = BC1_LD.LD.table[1,])
+
+```
+
+```{r BC1_PI}
+# List of animals
+smpls_BC1_PI <- Animals[Animals[,2] == "BC1_PI",][,3]
+smpls_BC1_PI <- str_remove(smpls_BC1_PI, "_[A-Z]+")
+smpls_BC1_PI <- unique(smpls_BC1_PI)
+FA_BC1_PI <- FA_3BC[which(as.character(FA_3BC$Animal) %in% smpls_BC1_PI),]
+
+BC1_PI.table <- FA_mean_table(FA_BC1_PI)
+# TABLE
+BC1_PI.table <- FA_mean_table(FA_BC1_PI)
+# Writing into CSV
+write.table(BC1_PI.table[2:22,], file = "~/Documents/RNA-Seq_TFM/FA/mean_sign_BC1_PI.csv", sep = ";", row.names = FALSE, col.names = BC1_PI.table[1,])
+```
+
+```{r BC1_DU}
+# List of animals
+smpls_BC1_DU <- Animals[Animals[,2] == "BC1_DU",][,3]
+smpls_BC1_DU <- str_remove(smpls_BC1_DU, "_[A-Z]+")
+smpls_BC1_DU <- unique(smpls_BC1_DU)
+FA_BC1_DU <- FA_3BC[which(as.character(FA_3BC$Animal) %in% smpls_BC1_DU),]
+
+# TABLE
+BC1_DU.table <- FA_mean_table(FA_BC1_DU)
+# Writing into CSV
+write.table(BC1_DU.table[2:22,], file = "~/Documents/RNA-Seq_TFM/FA/mean_sign_BC1_DU.csv", sep = ";", row.names = FALSE, col.names = BC1_DU.table[1,])
+
+```
+
+```{r FA_profiles_FUNCTION}
+
+# T test significance *** function
+TT <- function(g1, g2) {
+  pv <- t.test(g1, g2)$p.value
+  if (pv < 0.01) {
+    return("***")
+  } else if (pv < 0.05) {
+    return("**")
+  } else if (pv < 0-1) {
+    return("*")
+  } else {
+    return("NS")
+  }
+}
+
+# Function to generate the classical table
+FA_mean_table <- function(dataset) {
+  
+  dataset <- as.data.frame(dataset)
+  FA <- colnames(dataset[11:(ncol(dataset)-4)])
+  
+  # Header column
+  table <- c("Fatty Acid", "L mean", "H mean", "Significance")
+  
+  for (fa in FA) {
+    # Row begins with the FA
+    row <- str_split_fixed(fa,"_",n = 2)[1]
+    
+    L <- na.omit(dataset[which(dataset$Animal %in% Animals[Animals$Group == "L",1]),fa])
+    H <- na.omit(dataset[which(dataset$Animal %in% Animals[Animals$Group == "H",1]),fa])
+    # Addition of the means
+
+    row <- cbind(row,
+                 # L group
+                 round(mean(L),2),
+                 # H group
+                 round(mean(H),2),
+                 # TTest result
+                 TT(L,H))
+    
+    # Addition of each FA to the table
+    table <- rbind(table, row)
+    
+  }
+  names(table) <- NULL
+  return(as.data.frame(table))
+}
+
+```
+
+
+

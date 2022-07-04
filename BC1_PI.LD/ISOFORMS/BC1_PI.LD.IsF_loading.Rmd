@@ -1,0 +1,108 @@
+---
+title: "BC1_PI.Backfat.R"
+author: "FLC"
+date: '2022-05-02'
+output:
+  pdf_document: default
+  html_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r library_loading, include=FALSE}
+#BiocManager::install("GenomicFeatures")
+library(tximport) # To import the counts data from RSEM.
+library(DESeq2)
+library(vsn) # To generate the mean vs variance plots
+library(pheatmap) # To include heatmaps
+library(RColorBrewer)  # To automatically generate beautiful palettes.
+library(ggplot2) # To make wonderful plots
+library(randomForest) # To generate the MDSplot
+library(GenomicFeatures)  # To open the GTF file used in the Mapping
+library(ggrepel)  # To see who is who in the plots
+library(stringr)  # To do fancy things with strings
+library(snpStats)  # To generate the Q-Q Plot of the p-values
+# BiocManager::install("snpStats")
+library(org.Ss.eg.db)
+```
+
+```{r metadata_loading, echo = FALSE}
+### METADATA of ALL SAMPLES
+Animals <- read.delim("/home/fllobet/Documents/RNA-Seq_TFM/Animals.csv", sep = ";", stringsAsFactors = FALSE)
+
+## Cleaning of the metadata
+# Relocation of the Animal number as row names 
+row.names(Animals) <- paste0("X",Animals[,3])
+# The 'X' is necessary because R cannot use column names staring wiht a number.
+
+### Subset of the METADATA from the BC1_PI liver samples:
+
+# BC1_PI
+Animals.BC1_PI <- Animals[which(Animals[,2] == "BC1_PI"),]
+# Liver
+Animals.BC1_PI.iF.LD <- Animals.BC1_PI[which(Animals.BC1_PI[,4] == "Longissimusdorsi"),]
+
+Animals.BC1_PI.iF.LD <- Animals.BC1_PI.iF.LD[order(Animals.BC1_PI.iF.LD[,1]),]
+
+################################################################################
+# Removal of unutilized objects
+rm(Animals)
+```
+
+## `RSEM` *isoform-level* Counts import using `tximport`
+
+```{r tximport_RSEM_isoform_level_LOADING}
+# Object that contains the path to all the '.genes.results' RSEM output files. 
+BC1_PI.PORK_06 <- file.path("/home/fllobet/Documents/RNA-Seq_TFM/COUNTS/Isoforms/PK06", paste0(Animals.BC1_PI.iF.LD$SAMPLE_NAME, ".isoforms.results"))
+
+# Names of the columns
+names(BC1_PI.PORK_06) <- paste0("X", Animals.BC1_PI.iF.LD$SAMPLE_NAME) 
+# The 'X' is necessary because R cannot use column names staring with a number.
+
+### IMPORT
+tx.BC1_PI.iF.LD <- tximport(BC1_PI.PORK_06, type ="rsem", txIn = TRUE, txOut = TRUE)
+
+# Header of the imported counts
+head(tx.BC1_PI.iF.LD$counts)
+# Note that the number are still decimal.
+
+################################################################################
+# Removal of unutilized objects
+rm(BC1_PI.PORK_06)
+```
+
+
+## Generation of the dds object
+
+Before the RSEM-counts matrix can be converted into a `dds` object it is
+necessary to apply the **trick** proposed by the creator of `DESeq2` and
+`tximport`. This **trick** solves the 0-length features error.
+
+```{r trick, echo = FALSE}
+# Removal of 0-length features and 0-counts features as instructed in:
+# https://support.bioconductor.org/p/84304/
+# The person who states this solution is the developer of 'tximport'. 
+tx.BC1_PI.iF.LD$length[tx.BC1_PI.iF.LD$length == 0] <- 1
+
+```
+
+After the trick is done. The counts can effectively be converted into a
+`dds` object.
+
+```{r dds_object}
+### Standard 'dds' object:
+dds.BC1_PI.iF.LD <- DESeqDataSetFromTximport(tx.BC1_PI.iF.LD,
+                              colData = Animals.BC1_PI.iF.LD,
+                              design = ~ Group) # This design is temporary. 
+
+# Header of the counts now converted into postive integers: 
+head(counts(dds.BC1_PI.iF.LD)) # This counts are unormalized.
+
+# Storing the positive-integer counts into a count matrix
+CMX_dds.BC1_PI.iF.LD <- counts(dds.BC1_PI.iF.LD)
+colnames(CMX_dds.BC1_PI.iF.LD) <- str_replace(colnames(CMX_dds.BC1_PI.iF.LD),"X","")
+CMX_dds.BC1_PI.iF.LD <- cbind(rownames(CMX_dds.BC1_PI.iF.LD), CMX_dds.BC1_PI.iF.LD) 
+colnames(CMX_dds.BC1_PI.iF.LD) <- c("Feature", colnames(CMX_dds.BC1_PI.iF.LD)[2:dim(CMX_dds.BC1_PI.iF.LD)[2]])
+write.table(CMX_dds.BC1_PI.iF.LD, file = "/home/fllobet/Documents/RNA-Seq_TFM/BC1_PI.LD/ISOFORMS/IsoFORM_COUNTS.BC1_PI.ld.csv", sep =";", row.names = FALSE)
+```

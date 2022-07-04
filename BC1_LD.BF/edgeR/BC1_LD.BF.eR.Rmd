@@ -1,0 +1,411 @@
+---
+title: "BC1_LD.BF.eR"
+author: "FLC"
+date: '2022-05-07'
+output: html_document
+---
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(reshape2)
+library(mixOmics)
+library(RColorBrewer)
+library(VennDiagram)
+
+library(ggrepel)
+library(stringr)
+
+library(edgeR)  # What will make the magic happen
+
+library(readODS)
+library(readxl)
+#install.packages("readODS")
+library(tidyr)
+```
+
+
+# **Metadata** loading
+```{r load_metadata}
+# Loading of 'Animals.csv'
+Animals <- read.delim("/home/fllobet/Documents/RNA-Seq_TFM/Animals.csv", sep =";", row.names = 3)
+
+# Addition of the 'X' to the row names of Aniamls to  match col names of the
+# counts matrix
+rownames(Animals) <- paste("X", rownames(Animals), sep = "")
+
+# Selection of 'BC1_LD'
+Animals.BC1_LD <- Animals[which(Animals[,2] == "BC1_LD"),]
+
+# Selection of 'liver'
+Animals.BC1_LD.BF <- Animals.BC1_LD[which(Animals.BC1_LD[,3] == "Backfat"),]
+```
+
+# **Counts** loading
+
+The lodad counts are the *integer counts* extracted from the corresponding _DESeq2 script_ where they were genearted by means of the `tximport` package.
+```{r load_counts}
+cnt.BC1_LD.BF <- read.delim("/home/fllobet/Documents/RNA-Seq_TFM/BC1_LD.BF/COUNTS.BC1_LD.backfat.csv", sep = ";", row.names = 1)
+
+# Conversion into a matrix
+cnt.BC1_LD.BF <- as.matrix(cnt.BC1_LD.BF)
+```
+
+# Creation of a `DGEList` **object**
+Like in `desEq2` where a `dds` object had to be created here a `DGEList` object must be created.
+```{r DGEList_object}
+compare <- relevel(as.factor(Animals.BC1_LD.BF$Group), ref = "L")
+dge.BC1_LD.BF <- DGEList(cnt.BC1_LD.BF, group = compare)
+dge.BC1_LD.BF
+```
+
+
+
+# Filtering
+The native `edgeR` function `filterByExpr()`. 
+This function filters features that have **CPM above _k_ in _n_ samples** where:
+- _n_ is the smallest group size (in our case both groups have same size)
+- _k_ is the CPM equal to 10 / _L_ where _L_ is the **minimum library size**
+
+In human words it will remove any feature that has more than 10 counts _(but normalizing by library depth)_ in at least > samples than the small group.
+```{r filtering}
+a <- dim(dge.BC1_LD.BF$counts)[1]
+
+# Filtering
+keep <- filterByExpr(dge.BC1_LD.BF)
+dge.BC1_LD.BF <- dge.BC1_LD.BF[keep, , keep.lib.sizes=FALSE]
+
+# Percentage of remove features
+round(((dim(dge.BC1_LD.BF$counts)[1] - a) / a), 4)
+
+# Re-computation of the library sizes
+dge.BC1_LD.BF$samples$lib.size <- colSums(dge.BC1_LD.BF$counts)
+```
+# Normalization - Computation of **Normalization Factors**
+The **normalization factors** take into account **library size** via the *TMM* method. These factors will be used later in the `edgeR`model, the used values within the model are analogous to **CPM**.
+
+The Normalization Factors are **considered automatically** into the FC and p.value calculations. 
+```{r normalization_factors}
+# Demonstration of the variability in library size between samples
+st <- expression(paste("Note the ", bold("heterogeneity"), " and hence the ", bold("importance of normalization")))
+
+DF <- cbind(rownames(dge.BC1_LD.BF$samples), dge.BC1_LD.BF$samples)
+
+ggplot(DF[order(Animals$Group),], aes(x= `rownames(dge.BC1_LD.BF$samples)`, y = lib.size*1e-6, fill = group)) + geom_bar(stat = "identity", col = "#4d5d53") + labs(title = "Libray size accross samples", subtitle = st, x = "Sample", y = "Library size (millions)") + scale_x_discrete(breaks = colnames(dge.BC1_LD.BF$samples[order(Animals.BC1_LD.BF$Group),]), labels = str_replace(str_replace(colnames(dge.BC1_LD.BF$samples[order(Animals.BC1_LD.BF$Group),]), "X", ""),"_BF", "")) + 
+scale_fill_manual(name = "Group", values = c("#bdb76b","#2f847c")) + theme_bw()
+
+# Computation of normalization factors (accounting for library size)
+dge.BC1_LD.BF$samples <- calcNormFactors(dge.BC1_LD.BF)
+dge.BC1_LD.BF$samples
+
+# Readdition of the group data beause it gets removed in the previous step
+dge.BC1_LD.BF$samples$group <- compare
+```
+# Disersion estimation
+Following the advice of DCP, we use **only `common` dispersion** so the significant genes will be those that with **extremely large counts in some libraries (samples) and not all the libraries (samples)**.
+```{r common_dispersion}
+dge.BC1_LD.BF <- estimateCommonDisp(dge.BC1_LD.BF)
+
+# Value of the common dispersion:
+dge.BC1_LD.BF$common.dispersion
+sqrt(dge.BC1_LD.BF$common.dispersion)
+```
+
+# Exploratory data analysis
+
+## Generation of CPM
+```{r CPM}
+CPM.BC1_LD.BF <- cpm(dge.BC1_LD.BF)
+```
+
+## Generation of **_pseudoCPM_**
+```{r eda_01_pseudocounts}
+pseudoCnt.BC1_LD.BF <- log2(CPM.BC1_LD.BF + 1)
+head(pseudoCnt.BC1_LD.BF)
+```
+
+## Count distribution example
+```{r eda_03_cnt_distro}
+# Generation of a data frame containing 'Counts' and 'pseudoCounts' of sample 1 
+df <- data.frame(counts = dge.BC1_LD.BF$counts[ ,1], 
+                 pseudo = pseudoCnt.BC1_LD.BF[ ,1])
+
+p <- ggplot(data=df, aes(x = counts, y = ..density..)) +
+  geom_histogram(color = "#4d5d53", fill = "#ace1af") + theme_bw() +
+  ggtitle(paste0("Count distribution '", 
+                 Animals.BC1_LD.BF$Animal[1], "_BF'")) +
+  xlab("Counts") + ylab("")
+
+p2 <- ggplot(data=df, aes(x = pseudo, y = ..density..)) +
+  geom_histogram(color = "#4d5d53", fill = "#2f847c") + theme_bw() +
+  ggtitle(paste0("Pseudocount distribution '", 
+                 Animals.BC1_LD.BF$Animal[1], "_BF'")) +
+  xlab(expression(log[2](counts + 1)))
+
+grid.arrange(p, p2, ncol = 2)
+
+
+```
+## ALl samples count distribution
+```{r all_sample_counts}
+# Merge of the metadata with the pseudocounts data
+df_all_pseudoCnt <- cbind(Animals.BC1_LD.BF, t(pseudoCnt.BC1_LD.BF))
+
+# Melting to have a 'ggplot2' ready dataframe containg metada + pseudocounts
+df_all_pseudoCnt <- melt(df_all_pseudoCnt, id.vars = c("Animal", "Backcross", "Tissue", "Sex", "Group", "Father", "Mother", "Paper"))
+df_all_pseudoCnt$Animal <- as.character(df_all_pseudoCnt$Animal)
+
+
+p <- ggplot(data = df_all_pseudoCnt, aes(x = Animal, y = value, fill = Group)) + 
+  geom_boxplot() + ggtitle("count distributions") + 
+  scale_fill_manual(labels = c("H", "L"), values = c("#2f847c", "#bdb76b")) +
+  xlab("sample") + ylab("counts") + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90))
+p
+```
+
+## MA-Plot: Reproducibility between samples
+```{r eda_05_MAplot}
+# Manual MA-Plot
+df_ma <- data.frame("A" = (pseudoCnt.BC1_LD.BF[,1] + pseudoCnt.BC1_LD.BF[, 2])/2,
+                    "M" = pseudoCnt.BC1_LD.BF[,1] - pseudoCnt.BC1_LD.BF[,2])
+p <- ggplot(data = df_ma, aes(x = A, y = M)) + geom_point(alpha = 0.2, color = "#4d5d53") + theme_bw()
+p
+```
+## Overdispersion
+```{r eda_06_overdispersion}
+
+df_ovd <- data.frame(mean = apply(cnt.BC1_LD.BF[, Animals.BC1_LD.BF$Group == "L"], 1, mean),
+                     var = apply(cnt.BC1_LD.BF[, Animals.BC1_LD.BF$Group == "L"], 1, var))
+
+df_ovd <- df_ovd[df_ovd$mean <= 5000, ]
+
+p_ovd <- ggplot(df_ovd, aes(x = mean, y = var)) + geom_point(color = "#ace1af") + 
+  theme_bw() + geom_abline(aes(intercept=0, slope=1)) + ggtitle("Variance versus means in counts of LOW group") + ylab("Variance")
+p_ovd
+```
+For most genes the variance is higher than the mean, that is the common **overdispersionm** of RNA-Seq data. 
+
+## Heatmap
+```{r eda_07_euclidHeatmap}
+# Creation of a matrix of the euclidean distances of the pseudo-counts data. 
+df_hm <- as.matrix(dist(t(pseudoCnt.BC1_LD.BF)))
+# Colors of the heatmap. 
+cim_color <- colorRampPalette(rev(brewer.pal(9, "YlGnBu")))(16)
+
+cim(df_hm, color = cim_color, symkey = FALSE)
+
+```
+
+## PCA
+```{r eda_08_pca}
+
+# Selection of the top 500 SD features
+# SD for all the rows
+rowSD <- apply(pseudoCnt.BC1_LD.BF, 1, sd)
+# Ordering by SD
+pseudoCnt.BC1_LD.BF.top500 <- pseudoCnt.BC1_LD.BF[order(rowSD,
+                                                        decreasing = TRUE),]
+# Selection of the top 500 more variable features
+pseudoCnt.BC1_LD.BF.top500 <- pseudoCnt.BC1_LD.BF.top500[1:500,]
+################################################################################
+# Computation of the PCA
+resPCA <- prcomp(pseudoCnt.BC1_LD.BF)
+summary(resPCA)
+resPCA$sdev
+# Percentages of variation explained per PC
+pov <- resPCA$sdev^2/sum(resPCA$sdev^2)
+# Rounding in percentages:
+pov <- (round(pov, digits = 4) * 100)
+
+################################################################################
+# Conserving the Principal domponents data (eigenvalues or eigenvectors?)
+resPCA_pc12 <- as.data.frame(resPCA$rotation)
+# Addition of the sample metadata
+resPCA_pc12 <- cbind(resPCA_pc12, Animals.BC1_LD.BF)
+
+rlg <- expression(paste(bold("pseudocounts"), " (log2(CPM + 1)) transformation applied"))
+capt <- expression(paste("Counts of ", bold("liver"), " samples of ", bold("BC1_LD")))
+
+PCA.plot <- ggplot(resPCA_pc12, aes(x = PC1, y = PC2, color = Group)) + 
+  geom_point(size=3) + 
+  geom_text_repel(aes(label = str_replace(
+    str_replace(rownames(Animals.BC1_LD.BF), "_BF", ""),"X", ""))) +
+  xlab(paste0("PC1: ",pov[1],"% variance")) +
+  ylab(paste0("PC2: ",pov[2],"% variance")) + 
+  scale_color_manual(values = c("#2f847c", "#bdb76b")) +  
+  labs(title = "PCA of the top 500 more variable features",  
+       subtitle = rlg, caption = capt) + theme_bw()
+
+PCA.plot
+plotMDS(pseudoCnt.BC1_LD.BF.top500, col = c(rgb(47/225,132/225,124/225),
+                                            rgb(189/225,183/225,107/225),
+                                            rgb(47/225,132/225,124/225),
+                                            rgb(189/225,183/225,107/225),
+                                            rgb(189/225,183/225,107/225),
+                                            rgb(189/225,183/225,107/225),
+                                            rgb(47/225,132/225,124/225),
+                                            rgb(47/225,132/225,124/225),
+                                            rgb(189/225,183/225,107/225),
+                                            rgb(47/225,132/225,124/225),
+                                            rgb(189/225,183/225,107/225),
+                                            rgb(47/225,132/225,124/225)
+                                            ), labels = str_replace(str_replace(colnames(pseudoCnt.BC1_LD.BF.top500), "X", ""),"_BF", ""))
+legend("bottomright", legend = c("H", "L"), col = c(rgb(47/225,132/225,124/225),rgb(189/225,183/225,107/225)), pch = 19)
+title(main = "MDS plot (PCA) of the top 500 more variable features", sub = "Using root-mean-square average of the top log2FC between samples (leading log2FC).", cex.sub = 0.8)
+```
+# Differential expression analysis: Pairwise exact test
+The test is quite similar to the Fisher's exact test
+```{r pairwise_exact_test}
+# Lodaing of the file where I have the list of significant features from 
+# 'Corominas et al. 2013'
+coro.BC1_LD.BF <- read_excel("/home/fllobet/Documents/RNA-Seq_TFM/BC1_LD.BF/DEG_Corominas_2013_a.05_FC_1.2.xlsx")
+colnames(coro.BC1_LD.BF) <- c("ENSEMBL ID", "Gene name", colnames(coro.BC1_LD.BF)[3:4])
+# Exact test (core statistical test)
+res_BC1_LD.BF <- exactTest(dge.BC1_LD.BF)
+# Vislualitzation of the top 10 most significant features
+topTags(res_BC1_LD.BF)
+
+################################################################################
+# FDR Correction: Benjamini-Honchberg.
+res_BC1_LD.BF$table <- 
+  cbind(res_BC1_LD.BF$table, 
+        p.adjust(res_BC1_LD.BF$table$PValue, method = "BH"))
+
+# Confirmation of the performed comparison
+res_BC1_LD.BF$comparison
+
+################################################################################
+# Storing of the results into a CSV file
+res_BC1_LD.BF$table <- cbind(rownames(res_BC1_LD.BF$table), res_BC1_LD.BF$table)
+res_BC1_LD.BF$table <- cbind(rownames(res_BC1_LD.BF$table), res_BC1_LD.BF$table)
+res_BC1_LD.BF$table[,1:2] <- str_split_fixed(rownames(res_BC1_LD.BF$table),"_", n = 2) 
+
+colnames(res_BC1_LD.BF$table) <- c("ENSEMBL ID", "Gene name", colnames(res_BC1_LD.BF$table)[3:6])
+
+# BUSCARV over the lists - ENSEMBL ID
+
+IDs_in_coro <- merge(res_BC1_LD.BF$table, coro.BC1_LD.BF, by="ENSEMBL ID")$`ENSEMBL ID`
+
+# Printing of the number of mathcing features
+length(IDs_in_coro)
+
+# Addition of this info in the output CSV of the significant genes
+L <- dim(res_BC1_LD.BF$table)[2]
+for (i in 1:dim(res_BC1_LD.BF$table)[1]) {
+  if (res_BC1_LD.BF$table[i,1] %in% IDs_in_coro) {
+    res_BC1_LD.BF$table[i,L+1] <- "in Corominas et al. 2013"
+    }
+}
+################################################################################
+# BUSCARV over the lists - GENE NAME
+
+
+GNs_in_coro <- merge(res_BC1_LD.BF$table, coro.BC1_LD.BF, by="Gene name")$`Gene name`
+
+L <- dim(res_BC1_LD.BF$table)[2]
+for (i in 1:dim(res_BC1_LD.BF$table)[1]) {
+  if (res_BC1_LD.BF$table[i, 2] %in% GNs_in_coro) {
+    res_BC1_LD.BF$table[i, L + 1] <- "in Corominas et al. 2013"
+  }
+}
+
+################################################################################
+# Storing the results into a CSV file 
+colnames(res_BC1_LD.BF$table) <- c(colnames(res_BC1_LD.BF$table)[1:5], "PADJValue", "Paper ID", "Paper Gene")
+write.table(res_BC1_LD.BF$table, "/home/fllobet/Documents/RNA-Seq_TFM/BC1_LD.BF/edgeR/BC1_LD.BF_eResults.csv", sep = ";", row.names = FALSE)
+```
+
+```{r signficant_features}
+# Return of significant features with a given alpha threshold:
+signif_BC1_LD.BF <- decideTestsDGE(res_BC1_LD.BF, adjust.method = "BH", p.value = 0.05)
+
+# Selection of the significant features
+sel_signif_BC1_LD.BF <- which(signif_BC1_LD.BF[,1] != 0)
+
+# Datafame of the Results + P.adjusted values of only the significant features
+signif_BC1_LD.BF <- cbind(res_BC1_LD.BF$table[sel_signif_BC1_LD.BF,],
+                          signif_BC1_LD.BF[sel_signif_BC1_LD.BF, 1])
+
+################################################################################
+# Printing of:
+# 'n' of signficant features (rows)
+dim(signif_BC1_LD.BF)[1]
+
+# 'n' of logFC > 0 
+dim(signif_BC1_LD.BF[which(signif_BC1_LD.BF$logFC > 0 & signif_BC1_LD.BF$PADJValue < 0.05),])[1]
+# 'n' of logFC < 0
+dim(signif_BC1_LD.BF[which(signif_BC1_LD.BF$logFC < 0 & signif_BC1_LD.BF$PADJValue < 0.05),])[1]
+
+# Storing the signficiant features into a CSV file
+write.table(signif_BC1_LD.BF, "/home/fllobet/Documents/RNA-Seq_TFM/BC1_LD.BF/edgeR/BC1_LD.BF_eResults_Signif.05.csv", sep = ";", row.names = FALSE)
+```
+
+# ABS Fold-Change > 1.2
+```{r fc_1.2}
+fc12 <- log2(1.2)
+
+# Filtering 
+signif_BC1_LD.BF_FC_1.2 <- signif_BC1_LD.BF[which(signif_BC1_LD.BF$logFC > fc12 | signif_BC1_LD.BF$logFC < -fc12),]
+dim(signif_BC1_LD.BF_FC_1.2)[1]
+
+# 'n' of logFC > 0 
+dim(signif_BC1_LD.BF_FC_1.2[which(signif_BC1_LD.BF_FC_1.2$logFC > 0 & signif_BC1_LD.BF_FC_1.2$PADJValue < 0.05),])[1]
+# 'n' of logFC < 0
+dim(signif_BC1_LD.BF_FC_1.2[which(signif_BC1_LD.BF_FC_1.2$logFC < 0 & signif_BC1_LD.BF_FC_1.2$PADJValue < 0.05),])[1]
+```
+# ABS Fold-Change > 1.5
+```{r fc_1.5}
+fc15<- log2(1.5)
+
+# Filtering 
+signif_BC1_LD.BF_FC_1.5 <- signif_BC1_LD.BF[which(signif_BC1_LD.BF$logFC > fc15 | signif_BC1_LD.BF$logFC < -fc15),]
+dim(signif_BC1_LD.BF_FC_1.5)[1]
+
+# 'n' of logFC > 0 
+dim(signif_BC1_LD.BF_FC_1.5[which(signif_BC1_LD.BF_FC_1.5$logFC > 0 & signif_BC1_LD.BF_FC_1.5$PADJValue < 0.05),])[1]
+# 'n' of logFC < 0
+dim(signif_BC1_LD.BF_FC_1.5[which(signif_BC1_LD.BF_FC_1.5$logFC < 0 & signif_BC1_LD.BF_FC_1.5$PADJValue < 0.05),])[1]
+```
+# Check if the results match the results from Corominas et al. 2013
+
+
+
+```{r check_coro.ALL}
+# Division of the Feature column in ENSEMBL ID + Gene Name
+IDs_2022 <- rownames(cnt.BC1_LD.BF)
+IDs_2022 <- cbind(rownames(cnt.BC1_LD.BF), IDs_2022)
+IDs_2022[,1:2] <- str_split_fixed(rownames(cnt.BC1_LD.BF),"_", n = 2) 
+
+colnames(IDs_2022) <- c("ENSEMBL ID", "Gene name")
+
+# BUSCARV over the lists
+IDs_in_coro.ALl_ens <- merge(IDs_2022, coro.BC1_LD.BF, by = "ENSEMBL ID")
+dim(IDs_in_coro.ALl_ens)[1]
+
+IDs_in_coro.ALL_gn <- merge(IDs_2022, coro.BC1_LD.BF, by="Gene name")
+dim(IDs_in_coro.ALL_gn)[1]
+
+IDs_in_coro.CHNG_gn_ens <- merge(IDs_in_coro.ALL_gn, IDs_in_coro.ALl_ens, by.x = "Gene name", by.y = "Gene name.x")
+
+# Addition of this data (ID & gene name) into 2 new columns:
+
+# ENSEMBL ID
+L <- dim(coro.BC1_LD.BF)[2]
+for (i in 1:dim(coro.BC1_LD.BF)[1]) {
+  if (coro.BC1_LD.BF[i,1] %in% IDs_in_coro.ALl_ens$`ENSEMBL ID`) {
+    coro.BC1_LD.BF[i,L+1] <- "SAME ID 2022"
+    }
+}
+
+# Gene name
+L <- dim(coro.BC1_LD.BF)[2]
+for (i in 1:dim(coro.BC1_LD.BF)[1]) {
+  if (coro.BC1_LD.BF[i,2] %in% IDs_in_coro.ALL_gn$`Gene name`) {
+    coro.BC1_LD.BF[i,L+1] <- "SAME GeneName 2022"
+    }
+}
+
+write.table(coro.BC1_LD.BF, "/home/fllobet/Documents/RNA-Seq_TFM/BC1_LD.BF/edgeR/coro.BC1_LD.BF_2022.csv", sep = ";", row.names = FALSE)
+```
+

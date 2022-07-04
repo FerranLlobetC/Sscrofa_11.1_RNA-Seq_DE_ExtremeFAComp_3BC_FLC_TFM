@@ -1,0 +1,523 @@
+---
+title: "BC1_PI.BF.eR"
+author: "FLC"
+date: '2022-05-11'
+output: html_document
+---
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(reshape2)
+library(mixOmics)
+library(RColorBrewer)
+library(VennDiagram)
+
+library(ggrepel)
+library(stringr)
+
+library(edgeR)  # What will make the magic happen
+
+library(readODS)
+library(readxl)
+
+library(tidyr)
+library(dplyr)
+```
+
+
+# **Metadata** loading
+```{r load_metadata}
+# Loading of 'Animals.csv'
+Animals <- read.delim("/home/fllobet/Documents/RNA-Seq_TFM/Animals.csv", sep =";", row.names = 3)
+
+# Addition of the 'X' to the row names of Aniamls to  match col names of the
+# counts matrix
+rownames(Animals) <- paste("X", rownames(Animals), sep = "")
+
+# Selection of 'BC1_PI'
+Animals.BC1_PI <- Animals[which(Animals[,2] == "BC1_PI"),]
+
+# Selection of 'liver'
+Animals.BC1_PI.BF <- Animals.BC1_PI[which(Animals.BC1_PI[,3] == "Backfat"),]
+```
+
+# **Counts** loading
+
+The lodad counts are the *integer counts* extracted from the corresponding _DESeq2 script_ where they were genearted by means of the `tximport` package.
+```{r load_counts}
+cnt.BC1_PI.BF <- read.delim("/home/fllobet/Documents/RNA-Seq_TFM/BC1_PI.BF/COUNTS.BC1_PI.backfat.csv", sep = ";", row.names = 1)
+
+# Conversion into a matrix
+cnt.BC1_PI.BF <- as.matrix(cnt.BC1_PI.BF)
+```
+
+# Creation of a `DGEList` **object**
+Like in `desEq2` where a `dds` object had to be created here a `DGEList` object must be created.
+```{r DGEList_object}
+compare <- relevel(as.factor(Animals.BC1_PI.BF$Group), ref = "L")
+
+################ CHECKING COLS count matrix == ROWS metadata ###################
+# The while loop serves to see the OK prompt when the orders has been modified. 
+while (TRUE) {
+  if (levels(as.factor(rownames(Animals.BC1_PI.BF) == 
+                       colnames(cnt.BC1_PI.BF))) == TRUE) {
+    # If all the rows == all the columns (only TRUE): 
+    print("The columns of the counts matrix are the same as 
+          the rows of the metadata")
+    break # Exit infinite loop. 
+} else {
+  # Change the order of the columns of the count matrix to match the metadata
+  # which is the order of the "COMPARE" vector. 
+  cnt.BC1_PI.BF <- cnt.BC1_PI.BF[,rownames(Animals.BC1_PI.BF)]
+}
+}
+
+dge.BC1_PI.BF <- DGEList(cnt.BC1_PI.BF, group = compare)
+dge.BC1_PI.BF
+```
+
+
+
+# Filtering
+The native `edgeR` function `filterByExpr()`. 
+This function filters features that have **CPM above _k_ in _n_ samples** where:
+- _n_ is the smallest group size (in our case both groups have same size)
+- _k_ is the CPM equal to 10 / _L_ where _L_ is the **minimum library size**
+
+In human words it will remove any feature that has more than 10 counts _(but normalizing by library depth)_ in at least > samples than the small group.
+```{r filtering}
+a <- dim(dge.BC1_PI.BF$counts)[1]
+
+# Filtering
+keep <- filterByExpr(dge.BC1_PI.BF)
+dge.BC1_PI.BF <- dge.BC1_PI.BF[keep, , keep.lib.sizes=FALSE]
+
+# Percentage of remove features
+round(((dim(dge.BC1_PI.BF$counts)[1] - a) / a), 4)
+
+# Re-computation of the library sizes
+dge.BC1_PI.BF$samples$lib.size <- colSums(dge.BC1_PI.BF$counts)
+```
+# Normalization - Computation of **Normalization Factors**
+The **normalization factors** take into account **library size** via the *TMM* method. These factors will be used later in the `edgeR`model, the used values within the model are analogous to **CPM**.
+
+The Normalization Factors are **considered automatically** into the FC and p.value calculations. 
+```{r normalization_factors}
+# Demonstration of the variability in library size between samples
+st <- expression(paste("Note the ", bold("heterogeneity"), " and hence the ", bold("importance of normalization")))
+
+DF <- cbind(rownames(dge.BC1_PI.BF$samples), dge.BC1_PI.BF$samples)
+colnames(DF) <- c("Sample", colnames(DF[2:ncol(DF)]))
+
+# Saving the object 'DF' to be used for later creation of lib sizes plots for 
+# the thesis
+saveRDS(DF, file = "/home/fllobet/Documents/RNA-Seq_TFM/Extra_figures/eR_LIB/BC1_PI.BF.rds")
+
+ggplot(DF[order(Animals.BC1_PI.BF$Group),], aes(x= `rownames(dge.BC1_PI.BF$samples)`, y = lib.size*1e-6, fill = group)) + geom_bar(stat = "identity", col = "#4d5d53") + labs(title = "Libray size accross samples", subtitle = st, x = "Sample", y = "Library size (millions)") + scale_x_discrete(breaks = rownames(dge.BC1_PI.BF$samples[order(Animals.BC1_PI.BF$Group),]), labels = str_replace(str_replace(rownames(dge.BC1_PI.BF$samples[order(Animals.BC1_PI.BF$Group),]), "X", ""),"_BF", "")) + 
+scale_fill_manual(name = "Group", values = c("#bdb76b","#2f847c")) + theme_bw()
+
+# Computation of normalization factors (accounting for library size)
+dge.BC1_PI.BF$samples <- calcNormFactors(dge.BC1_PI.BF)
+dge.BC1_PI.BF$samples
+
+# Readdition of the group data beause it gets removed in the previous step
+dge.BC1_PI.BF$samples$group <- compare 
+
+################## CHECKING COLS DGE object == ROWS metadata ###################
+# The while loop serves to see the OK prompt when the orders has been modified. 
+while (TRUE) {
+  if (levels(as.factor(rownames(Animals.BC1_PI.BF) == 
+                       colnames(dge.BC1_PI.BF))) == TRUE) {
+    # If all the rows == all the columns (only TRUE): 
+    print("The columns of the counts matrix are the same as 
+          the rows of the metadata")
+    break # Exit infinite loop. 
+} else {
+  # Change the order of the columns of the count matrix to match the metadata
+  # which is the order of the "COMPARE" vector. 
+  cnt.BC1_PI.BF <- cnt.BC1_PI.BF[,rownames(Animals.BC1_PI.BF)]
+}
+}
+
+```
+# Disersion estimation
+Following the advice of DCP, we use **only `common` dispersion** so the significant genes will be those that with **extremely large counts in some libraries (samples) and not all the libraries (samples)**.
+```{r common_dispersion}
+dge.BC1_PI.BF <- estimateCommonDisp(dge.BC1_PI.BF)
+
+# Value of the common dispersion:
+dge.BC1_PI.BF$common.dispersion
+sqrt(dge.BC1_PI.BF$common.dispersion)
+```
+
+# Exploratory data analysis
+
+## Generation of CPM
+```{r CPM}
+CPM.BC1_PI.BF <- cpm(dge.BC1_PI.BF)
+```
+
+## Generation of **_pseudoCPM_**
+```{r eda_01_pseudocounts}
+pseudoCnt.BC1_PI.BF <- log2(CPM.BC1_PI.BF + 1)
+head(pseudoCnt.BC1_PI.BF)
+```
+
+## Count distribution example
+```{r eda_03_cnt_distro}
+# Generation of a data frame containing 'Counts' and 'pseudoCounts' of sample 1 
+df <- data.frame(counts = dge.BC1_PI.BF$counts[ ,1], 
+                 pseudo = pseudoCnt.BC1_PI.BF[ ,1])
+
+p <- ggplot(data=df, aes(x = counts, y = ..density..)) +
+  geom_histogram(color = "#4d5d53", fill = "#ace1af") + theme_bw() +
+  ggtitle(paste0("Count distribution '", 
+                 Animals.BC1_PI.BF$Animal[1], "_LD'")) +
+  xlab("Counts") + ylab("")
+
+p2 <- ggplot(data=df, aes(x = pseudo, y = ..density..)) +
+  geom_histogram(color = "#4d5d53", fill = "#2f847c") + theme_bw() +
+  ggtitle(paste0("Pseudocount distribution '", 
+                 Animals.BC1_PI.BF$Animal[1], "_LD'")) +
+  xlab(expression(log[2](counts + 1)))
+
+grid.arrange(p, p2, ncol = 2)
+
+
+```
+## ALl samples count distribution
+```{r all_sample_counts}
+# Merge of the metadata with the pseudocounts data
+df_all_pseudoCnt <- cbind(Animals.BC1_PI.BF, t(pseudoCnt.BC1_PI.BF))
+
+# Melting to have a 'ggplot2' ready dataframe containg metada + pseudocounts
+df_all_pseudoCnt <- melt(df_all_pseudoCnt, id.vars = c("Animal", "Backcross", "Tissue", "Sex", "Group", "Father", "Mother", "Paper"))
+df_all_pseudoCnt$Animal <- as.character(df_all_pseudoCnt$Animal)
+
+
+p <- ggplot(data = df_all_pseudoCnt, aes(x = Animal, y = value, fill = Group)) + 
+  geom_boxplot() + ggtitle("count distributions") + 
+  scale_fill_manual(labels = c("H", "L"), values = c("#2f847c", "#bdb76b")) +
+  xlab("sample") + ylab("counts") + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90))
+p
+```
+
+## MA-Plot: Reproducibility between samples
+```{r eda_05_MAplot}
+# Manual MA-Plot
+df_ma <- data.frame("A" = (pseudoCnt.BC1_PI.BF[,1] + pseudoCnt.BC1_PI.BF[, 2])/2,
+                    "M" = pseudoCnt.BC1_PI.BF[,1] - pseudoCnt.BC1_PI.BF[,2])
+p <- ggplot(data = df_ma, aes(x = A, y = M)) + geom_point(alpha = 0.2, color = "#4d5d53") + theme_bw()
+p
+```
+## Overdispersion
+```{r eda_06_overdispersion}
+
+df_ovd <- data.frame(mean = apply(cnt.BC1_PI.BF[, Animals.BC1_PI.BF$Group == "L"], 1, mean),
+                     var = apply(cnt.BC1_PI.BF[, Animals.BC1_PI.BF$Group == "L"], 1, var))
+
+df_ovd <- df_ovd[df_ovd$mean <= 5000, ]
+
+p_ovd <- ggplot(df_ovd, aes(x = mean, y = var)) + geom_point(color = "#ace1af") + 
+  theme_bw() + geom_abline(aes(intercept=0, slope=1)) + ggtitle("Variance versus means in counts of LOW group") + ylab("Variance")
+p_ovd
+```
+For most genes the variance is higher than the mean, that is the common **overdispersionm** of RNA-Seq data. 
+
+## Heatmap
+```{r eda_07_euclidHeatmap}
+# Creation of a matrix of the euclidean distances of the pseudo-counts data. 
+df_hm <- as.matrix(dist(t(pseudoCnt.BC1_PI.BF)))
+# Colors of the heatmap. 
+cim_color <- colorRampPalette(rev(brewer.pal(9, "YlGnBu")))(16)
+
+cim(df_hm, color = cim_color, symkey = FALSE)
+
+```
+
+## PCA
+```{r eda_08_pca}
+
+# Selection of the top 500 SD features
+# SD for all the rows
+rowSD <- apply(pseudoCnt.BC1_PI.BF, 1, sd)
+# Ordering by SD
+pseudoCnt.BC1_PI.BF.top500 <- pseudoCnt.BC1_PI.BF[order(rowSD,
+                                                        decreasing = TRUE),]
+# Selection of the top 500 more variable features
+pseudoCnt.BC1_PI.BF.top500 <- pseudoCnt.BC1_PI.BF.top500[1:500,]
+################################################################################
+# Computation of the PCA
+resPCA <- prcomp(pseudoCnt.BC1_PI.BF)
+summary(resPCA)
+resPCA$sdev
+# Percentages of variation explained per PC
+pov <- resPCA$sdev^2/sum(resPCA$sdev^2)
+# Rounding in percentages:
+pov <- (round(pov, digits = 4) * 100)
+
+################################################################################
+# Conserving the Principal domponents data (eigenvalues or eigenvectors?)
+resPCA_pc12 <- as.data.frame(resPCA$rotation)
+# Addition of the sample metadata
+resPCA_pc12 <- cbind(resPCA_pc12, Animals.BC1_PI.BF)
+
+rlg <- expression(paste(bold("pseudocounts"), " (log2(CPM + 1)) transformation applied"))
+capt <- expression(paste("Counts of ", bold("liver"), " samples of ", bold("BC1_PI")))
+
+PCA.plot <- ggplot(resPCA_pc12, aes(x = PC1, y = PC2, color = Group)) + 
+  geom_point(size=3) + 
+  geom_text_repel(aes(label = str_replace(
+    str_replace(rownames(Animals.BC1_PI.BF), "_LD", ""),"X", ""))) +
+  xlab(paste0("PC1: ",pov[1],"% variance")) +
+  ylab(paste0("PC2: ",pov[2],"% variance")) + 
+  scale_color_manual(values = c("#2f847c", "#bdb76b")) +  
+  labs(title = "PCA of the top 500 more variable features",  
+       subtitle = rlg, caption = capt) + theme_bw()
+
+# Selection of the top 500 SD features
+# SD for all the rows
+rowSD <- apply(pseudoCnt.BC1_PI.BF, 1, sd)
+# Ordering by SD
+pseudoCnt.BC1_PI.BF.top500 <- pseudoCnt.BC1_PI.BF[order(rowSD,
+                                                        decreasing = TRUE),]
+# Selection of the top 500 more variable features
+pseudoCnt.BC1_PI.BF.top500 <- pseudoCnt.BC1_PI.BF.top500[1:500,]
+################################################################################
+# Computation of the PCA
+resPCA <- prcomp(pseudoCnt.BC1_PI.BF)
+summary(resPCA)
+resPCA$sdev
+# Percentages of variation explained per PC
+pov <- resPCA$sdev^2/sum(resPCA$sdev^2)
+# Rounding in percentages:
+pov <- (round(pov, digits = 4) * 100)
+
+################################################################################
+# Conserving the Principal domponents data (eigenvalues or eigenvectors?)
+resPCA_pc12 <- as.data.frame(resPCA$rotation)
+# Addition of the sample metadata
+resPCA_pc12 <- cbind(resPCA_pc12, Animals.BC1_PI.BF)
+
+rlg <- expression(paste(bold("pseudocounts"), " (log2(CPM + 1)) transformation applied"))
+capt <- expression(paste("Counts of ", bold("liver"), " samples of ", bold("BC1_PI")))
+
+PCA.plot <- ggplot(resPCA_pc12, aes(x = PC1, y = PC2, color = Group)) + 
+  geom_point(size=3) + 
+  geom_text_repel(aes(label = str_replace(
+    str_replace(rownames(Animals.BC1_PI.BF), "_LD", ""),"X", ""))) +
+  xlab(paste0("PC1: ",pov[1],"% variance")) +
+  ylab(paste0("PC2: ",pov[2],"% variance")) + 
+  scale_color_manual(values = c("#2f847c", "#bdb76b")) +  
+  labs(title = "PCA of the top 500 more variable features",  
+       subtitle = rlg, caption = capt) + theme_bw()
+
+PCA.plot
+# Obtaining the values from the MDS plot function
+mds <- plotMDS(pseudoCnt.BC1_PI.BF.top500, plot = FALSE)
+
+# Addition of sample names
+mds.eigen <- as.data.frame(mds$eigen.vectors[,1:2])
+rownames(mds.eigen) <- rownames(mds$distance.matrix.squared)
+
+# Re-sorting of the 'mds.eigen' object
+mds.eigen <- mds.eigen[rownames(Animals.BC1_PI.BF),]
+
+# Addition of group data
+mds.eigen <- cbind(mds.eigen, Animals.BC1_PI.BF[order(rownames(mds.eigen)),7])
+colnames(mds.eigen) <- c(colnames(mds.eigen)[1:2], "Group")
+# Manual plotting of the eigenVectors form the MDS plot output
+ggplot(mds.eigen, aes(x = V1, y = V2, color = Group, 
+                      label = str_replace(str_replace(rownames(mds.eigen), 
+                                                      "X", ""),"_BF", ""))) + 
+  geom_text() + 
+  scale_color_manual(values = c(rgb(47/225,132/225,124/225), 
+                                rgb(189/225,183/225,107/225))) + 
+  labs(x = paste0("Leading logFC dim 1 (", round(mds$var.explained[1]*100,0), 
+                  "%)"),
+       y = paste0("Leading logFC dim 2 (", round(mds$var.explained[2]*100,0),
+                  "%)"), 
+       title = "BC1_PI ~ BF", 
+       subtitle = "MDS plot (PCA) of the top 500 more variable features",
+       caption = "Using root-mean-square average of the top log2FC between samples (leading log2FC).") + 
+  guides(
+  color = guide_legend(title = "Group", override.aes = aes(label = "•", 
+                                                           size = 8))) +
+  scale_y_reverse() + scale_x_reverse() + 
+  theme_bw()
+# plotMDS(pseudoCnt.BC1_PI.BF.top500, col = c(rgb(189/225,183/225,107/225),
+#                                             rgb(47/225,132/225,124/225),
+#                                             rgb(189/225,183/225,107/225),
+#                                             rgb(189/225,183/225,107/225),
+#                                             rgb(47/225,132/225,124/225),
+#                                             rgb(47/225,132/225,124/225),
+#                                             rgb(189/225,183/225,107/225),
+#                                             rgb(47/225,132/225,124/225),
+#                                             rgb(189/225,183/225,107/225),
+#                                             rgb(189/225,183/225,107/225),
+#                                             rgb(47/225,132/225,124/225),
+#                                             rgb(47/225,132/225,124/225)), labels = str_replace(str_replace(colnames(pseudoCnt.BC1_PI.BF.top500), "X", ""),"_LV", ""))
+# legend("bottomright", legend = c("H", "L"), col = c(rgb(47/225,132/225,124/225), rgb(189/225,183/225,107/225)), pch = 19)
+# title(main = "MDS plot (PCA) of the top 500 more variable features", sub = "Using root-mean-square average of the top log2FC between samples (leading log2FC).", cex.sub = 0.8)
+```
+# Differential expression analysis: Pairwise exact test
+The test is quite similar to the Fisher's exact test
+```{r pairwise_exact_test}
+# Lodaing of the file where I have the list of significant features from 
+# 'Corominas et al. 2013'
+coro.BC1_LD.BF <- read_excel("/home/fllobet/Documents/RNA-Seq_TFM/BC1_LD.BF/DEG_Corominas_2013_a.05_FC_1.2.xlsx")
+colnames(coro.BC1_LD.BF) <- c("ENSEMBL ID", "Gene name", colnames(coro.BC1_LD.BF)[3:4])
+# Exact test (core statistical test)
+res_BC1_PI.BF <- exactTest(dge.BC1_PI.BF)
+# Vislualitzation of the top 10 most significant features
+topTags(res_BC1_PI.BF)
+
+################################################################################
+# FDR Correction: Benjamini-Honchberg.
+res_BC1_PI.BF$table <- 
+  cbind(res_BC1_PI.BF$table, 
+        p.adjust(res_BC1_PI.BF$table$PValue, method = "BH"))
+
+# Confirmation of the performed comparison
+res_BC1_PI.BF$comparison
+
+################################################################################
+# Storing of the results into a CSV file
+res_BC1_PI.BF$table <- cbind(rownames(res_BC1_PI.BF$table), res_BC1_PI.BF$table)
+res_BC1_PI.BF$table <- cbind(rownames(res_BC1_PI.BF$table), res_BC1_PI.BF$table)
+res_BC1_PI.BF$table[,1:2] <- str_split_fixed(rownames(res_BC1_PI.BF$table),"_", n = 2) 
+
+colnames(res_BC1_PI.BF$table) <- c("ENSEMBL ID", "Gene name", colnames(res_BC1_PI.BF$table)[3:6])
+
+# BUSCARV over the lists - ENSEMBL ID
+
+IDs_in_coro <- merge(res_BC1_PI.BF$table, coro.BC1_LD.BF, by="ENSEMBL ID")$`ENSEMBL ID`
+
+# Printing of the number of mathcing features
+length(IDs_in_coro)
+
+# Addition of this info in the output CSV of the significant genes
+L <- dim(res_BC1_PI.BF$table)[2]
+for (i in 1:dim(res_BC1_PI.BF$table)[1]) {
+  if (res_BC1_PI.BF$table[i,1] %in% IDs_in_coro) {
+    res_BC1_PI.BF$table[i,L+1] <- "in Corominas et al. 2013"
+    }
+}
+################################################################################
+# BUSCARV over the lists - GENE NAME
+
+
+GNs_in_coro <- merge(res_BC1_PI.BF$table, coro.BC1_LD.BF, by="Gene name")$`Gene name`
+# Printing of the number of mathcing features
+length(GNs_in_coro)
+
+L <- dim(res_BC1_PI.BF$table)[2]
+for (i in 1:dim(res_BC1_PI.BF$table)[1]) {
+  if (res_BC1_PI.BF$table[i, 2] %in% GNs_in_coro) {
+    res_BC1_PI.BF$table[i, L + 1] <- "in Corominas et al. 2013"
+  }
+}
+
+################################################################################
+# Merging of the 2 columns recently created 'Paper ID' and 'Paper Gene'
+colnames(res_BC1_PI.BF$table) <- c(colnames(res_BC1_PI.BF$table)[1:5], "PADJValue", "Paper ID", "Paper Gene")
+
+# Merging the 2 columns of 'Paper ID' and 'Paper Name' to paint the plot
+res_BC1_PI.BF$table  <- res_BC1_PI.BF$table %>% mutate(`Paper ID` = coalesce(`Paper ID`,`Paper Gene`)) %>%
+         select(colnames(res_BC1_PI.BF$table)[1:7])
+
+
+
+################################################################################
+# Storing the results into a CSV file 
+colnames(res_BC1_PI.BF$table) <- c(colnames(res_BC1_PI.BF$table)[1:5], "PADJValue", "Paper")
+write.table(res_BC1_PI.BF$table, "/home/fllobet/Documents/RNA-Seq_TFM/BC1_PI.BF/edgeR/BC1_PI.BF_eResults.csv", sep = ";", row.names = FALSE)
+```
+
+```{r signficant_features}
+# Return of significant features with a given alpha threshold:
+signif_BC1_PI.BF <- decideTestsDGE(res_BC1_PI.BF, adjust.method = "BH", p.value = 0.05)
+
+# Selection of the significant features
+sel_signif_BC1_PI.BF <- which(signif_BC1_PI.BF[,1] != 0)
+
+# Datafame of the Results + P.adjusted values of only the significant features
+signif_BC1_PI.BF <- cbind(res_BC1_PI.BF$table[sel_signif_BC1_PI.BF,],
+                          signif_BC1_PI.BF[sel_signif_BC1_PI.BF, 1])
+
+################################################################################
+# Printing of:
+# 'n' of signficant features (rows)
+dim(signif_BC1_PI.BF)[1]
+
+# 'n' of logFC > 0 
+dim(signif_BC1_PI.BF[which(signif_BC1_PI.BF$logFC > 0 & signif_BC1_PI.BF$PADJValue < 0.05),])[1]
+# 'n' of logFC < 0
+dim(signif_BC1_PI.BF[which(signif_BC1_PI.BF$logFC < 0 & signif_BC1_PI.BF$PADJValue < 0.05),])[1]
+
+# Storing the signficiant features into a CSV file
+write.table(signif_BC1_PI.BF, "/home/fllobet/Documents/RNA-Seq_TFM/BC1_PI.BF/edgeR/BC1_PI.BF_eResults_Signif.05.csv", sep = ";", row.names = FALSE)
+```
+
+# ABS Fold-Change > 1.2
+```{r fc_1.2}
+fc12 <- log2(1.2)
+
+# Filtering 
+signif_BC1_PI.BF_FC_1.2 <- signif_BC1_PI.BF[which(signif_BC1_PI.BF$logFC > fc12 | signif_BC1_PI.BF$logFC < -fc12),]
+dim(signif_BC1_PI.BF_FC_1.2)[1]
+
+# 'n' of logFC > 0 
+dim(signif_BC1_PI.BF_FC_1.2[which(signif_BC1_PI.BF_FC_1.2$logFC > 0 & signif_BC1_PI.BF_FC_1.2$PADJValue < 0.05),])[1]
+# 'n' of logFC < 0
+dim(signif_BC1_PI.BF_FC_1.2[which(signif_BC1_PI.BF_FC_1.2$logFC < 0 & signif_BC1_PI.BF_FC_1.2$PADJValue < 0.05),])[1]
+```
+# ABS Fold-Change > 1.5
+```{r fc_1.5}
+fc15<- log2(1.5)
+
+# Filtering 
+signif_BC1_PI.BF_FC_1.5 <- signif_BC1_PI.BF[which(signif_BC1_PI.BF$logFC > fc15 | signif_BC1_PI.BF$logFC < -fc15),]
+dim(signif_BC1_PI.BF_FC_1.5)[1]
+
+# 'n' of logFC > 0 
+dim(signif_BC1_PI.BF_FC_1.5[which(signif_BC1_PI.BF_FC_1.5$logFC > 0 & signif_BC1_PI.BF_FC_1.5$PADJValue < 0.05),])[1]
+# 'n' of logFC < 0
+dim(signif_BC1_PI.BF_FC_1.5[which(signif_BC1_PI.BF_FC_1.5$logFC < 0 & signif_BC1_PI.BF_FC_1.5$PADJValue < 0.05),])[1]
+```
+# PValues
+
+```{r}
+levels(as.factor(res_BC1_PI.BF$table$Paper))
+ggplot(res_BC1_PI.BF$table[which(res_BC1_PI.BF$table$PADJValue < 1),], 
+       aes(x = PADJValue, fill = as.factor(Paper))) + 
+  geom_histogram(color = "#4d5d53") + 
+  geom_vline(xintercept = 0.05, linetype='dashed', col = '#556b2f', size = 1) + 
+  geom_vline(xintercept = 0.1, linetype='dashed', col = '#2f847c', size = 1) +
+  scale_fill_manual(name = "", values = c("#ace1af"), na.value = "#bdb76b", 
+                    labels = c("in Corominas et al. 2013", 
+                               "NOT in Corominas et al. 2013")) + 
+  labs(x = "Adjusted PValues distribution", y = "Frequency", title = "PValues distribution of BC1_PI ~ BACKFAT", subtitle = "Location of the signficiant features of Corominas et al. 2013 alognside the adjuste PValue distribution", caption = "The dashed line repsent 0.05 and 0.1 respectively") + theme_bw() + 
+  theme(legend.position = "bottom")
+```
+
+
+# Saving the CPM table
+```{r save_CPM}
+# Ordering L -> H the columns
+CPM.BC1_PI.BF <- CPM.BC1_PI.BF[,rownames(Animals.BC1_PI.BF[order(Animals.BC1_PI.BF$Group, decreasing = TRUE),])]
+
+# Division of the 'Features' column into 2 new columns
+CPM.BC1_PI.BF <- cbind(rownames(CPM.BC1_PI.BF),
+                       rownames(CPM.BC1_PI.BF),
+                       CPM.BC1_PI.BF)
+
+CPM.BC1_PI.BF[,1:2] <- str_split_fixed(rownames(CPM.BC1_PI.BF),"_", n = 2) 
+
+colnames(CPM.BC1_PI.BF) <- c("ENSEMBL ID", "Gene name", str_replace(colnames(CPM.BC1_PI.BF)[3:dim(CPM.BC1_PI.BF)[2]],"X",""))
+
+write.table(CPM.BC1_PI.BF, "/home/fllobet/Documents/RNA-Seq_TFM/BC1_PI.BF/edgeR/CPM.BC1_PI.BF.csv", sep = ";", row.names = FALSE) 
+
+```
